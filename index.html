@@ -1,0 +1,2992 @@
+# Detector
+動態變動偵測器<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>動態變動偵測器 v6.9 (跨日修復版)</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@300;400;500;700&display=swap');
+        body {
+            font-family: 'Noto Sans TC', sans-serif;
+            background-color: #0f172a;
+            color: #e2e8f0;
+            user-select: none;
+            overflow-y: auto; /* Ensure body can scroll */
+        }
+        /* 標準卷軸樣式 */
+        ::-webkit-scrollbar { width: 8px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+        ::-webkit-scrollbar-thumb:hover { background: #64748b; }
+
+        .animate-fade-in { animation: fadeIn 0.3s ease-out; }
+        @keyframes fadeIn { from { opacity: 0; transform: translateY(-10px); } to { opacity: 1; transform: translateY(0); } }
+
+        .flash-border { animation: flashBorder 3s ease-out forwards; }
+        @keyframes flashBorder {
+            0% { border-color: rgba(34, 197, 94, 0); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+            10% { border-color: rgba(34, 197, 94, 1); box-shadow: 0 0 20px 0 rgba(34, 197, 94, 0.5) inset; }
+            80% { border-color: rgba(34, 197, 94, 1); box-shadow: 0 0 10px 0 rgba(34, 197, 94, 0.3) inset; }
+            100% { border-color: rgba(34, 197, 94, 0); box-shadow: 0 0 0 0 rgba(34, 197, 94, 0); }
+        }
+
+        /* 偵測綠框樣式 */
+        .detection-box {
+            position: absolute;
+            border: 1px solid #22c55e;
+            background-color: rgba(34, 197, 94, 0.1);
+            box-shadow: 0 0 0 1px rgba(0,0,0,0.1), 0 0 4px rgba(34, 197, 94, 0.4);
+            pointer-events: none;
+            z-index: 40;
+            transition: all 0.1s linear;
+        }
+        .detection-box.main-anchor {
+            border-color: #3b82f6; 
+            background-color: rgba(59, 130, 246, 0.05);
+            border-style: dashed;
+        }
+
+        /* 誤判修正按鈕 (X) - 極致微型版 v6.9 (10px) */
+        .detection-close-btn {
+            position: absolute;
+            top: -5px; right: -5px; 
+            width: 10px; height: 10px; /* 12px -> 10px */
+            background-color: #ef4444; color: white;
+            border-radius: 50%; display: flex; align-items: center; justify-content: center;
+            font-size: 6px; /* 8px -> 6px */
+            cursor: pointer; pointer-events: auto; 
+            box-shadow: 0 1px 2px rgba(0,0,0,0.5); z-index: 50;
+            transition: transform 0.1s, background-color 0.2s;
+            border: 1px solid #0f172a; 
+        }
+        .detection-close-btn:hover { transform: scale(1.3); background-color: #dc2626; }
+        .detection-close-btn:active { transform: scale(0.95); }
+
+        .scan-region-box {
+            position: absolute; border: 2px dashed rgba(255, 255, 255, 0.5);
+            background-color: rgba(255, 255, 255, 0.05); pointer-events: none; z-index: 35;
+        }
+        .scan-region-label {
+            position: absolute; top: -16px; left: 0;
+            background: rgba(255, 255, 255, 0.5); color: #000;
+            font-size: 10px; padding: 0 4px; font-weight: bold;
+        }
+        
+        .preview-wrapper {
+            position: relative; 
+            background-color: #000; 
+            border-radius: 0.75rem; 
+            overflow: hidden; 
+            height: 500px; 
+            box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.5);
+        }
+        .preview-scroller { overflow: auto; width: 100%; height: 100%; display: block; }
+        .crop-selection {
+            position: absolute; border: 2px dashed #facc15;
+            background-color: rgba(250, 204, 21, 0.2); pointer-events: none;
+            z-index: 50; display: none;
+        }
+        .crosshair-cursor { cursor: crosshair !important; }
+        #imgViewModalContent { max-height: 85vh; max-width: 95vw; width: auto; height: auto; min-width: 300px; }
+
+        .combo-slot {
+            background-color: #1e293b; border: 2px dashed #475569;
+            border-radius: 0.5rem; display: flex; align-items: center; justify-content: center;
+            cursor: pointer; transition: all 0.2s; overflow: hidden; position: relative;
+        }
+        .combo-slot.hover { border-color: #facc15; background-color: #334155; }
+        .combo-slot.filled { border-style: solid; border-color: #475569; }
+        
+        .slot-main { width: 100%; height: 80px; margin-bottom: 8px; border-color: #3b82f6; border-style: dashed; }
+        .slot-main.filled { border-style: solid; }
+        .slot-sub { width: 60px; height: 60px; }
+
+        .combo-slot.matched { border-color: #22c55e; box-shadow: 0 0 8px rgba(34, 197, 94, 0.5); }
+        .slot-main.matched { border-color: #3b82f6; box-shadow: 0 0 8px rgba(59, 130, 246, 0.5); }
+        
+        .slot-label {
+            position: absolute; bottom: 2px; right: 2px; font-size: 9px;
+            background: rgba(0,0,0,0.7); color: #ccc; padding: 1px 4px;
+            border-radius: 4px; pointer-events: none;
+        }
+        .score-tag {
+            position: absolute; top: 0; left: 0; background-color: rgba(0, 0, 0, 0.7);
+            color: #fff; font-size: 10px; padding: 1px 4px;
+            border-bottom-right-radius: 4px; font-family: monospace; z-index: 10;
+        }
+        .log-subtext { font-size: 10px; color: #64748b; margin-left: 18px; }
+        #logContainer { scrollbar-width: thin; scrollbar-color: #475569 #1e293b; }
+        
+        #loadingOverlay { backdrop-filter: blur(4px); }
+        .spinner {
+            border: 4px solid rgba(255, 255, 255, 0.1); width: 36px; height: 36px;
+            border-radius: 50%; border-left-color: #3b82f6; animation: spin 1s linear infinite;
+        }
+        @keyframes spin { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }
+        
+        .draggable-source { opacity: 0.4; border: 2px dashed #64748b; }
+        .drag-handle { cursor: move; }
+        .hud-draggable-source { opacity: 0.5; transform: scale(0.95); }
+        
+        .lights-content {
+            transition: max-height 0.3s ease-in-out, opacity 0.3s ease-in-out;
+            max-height: 150px; opacity: 1; overflow-y: auto;
+        }
+        .lights-content.collapsed { max-height: 0; opacity: 0; margin: 0; padding: 0; }
+        .chevron { transition: transform 0.3s; }
+        .chevron.collapsed { transform: rotate(-90deg); }
+
+        /* FIXED: Group List Content - Enabled Scrolling */
+        .group-list-content {
+            transition: max-height 0.3s ease-in-out;
+            max-height: 60vh; /* Restrict height to view */
+            overflow-y: auto; /* Enable scrollbar */
+            overflow-x: hidden;
+        }
+        .group-list-content.collapsed {
+            max-height: 0 !important;
+            overflow: hidden;
+        }
+        
+        /* LOG CONTENT COLLAPSE STYLE */
+        .log-content-wrapper { transition: height 0.3s ease-in-out; height: 340px; overflow: hidden; }
+        .log-content-wrapper.collapsed { height: 0 !important; }
+
+        .edit-controls { display: none; }
+        .is-edit-mode .edit-controls { display: flex; }
+
+        .pagination-container { display: flex; gap: 4px; align-items: center; justify-content: center; padding: 4px 0; }
+        .page-btn {
+            background: transparent; color: #64748b; border: 1px solid #334155;
+            min-width: 24px; height: 24px; font-size: 11px; padding: 0 4px;
+            border-radius: 4px; cursor: pointer; display: flex; align-items: center;
+            justify-content: center; font-family: monospace; transition: all 0.1s;
+        }
+        .page-btn:hover { color: #e2e8f0; border-color: #475569; background-color: #1e293b; }
+        .page-btn.active { background-color: #2563eb; color: #fff; border-color: #2563eb; font-weight: bold; }
+        .dots { color: #475569; font-size: 10px; padding: 0 2px; }
+
+        /* Highlight the Popout Button */
+        #popoutLogBtn {
+            animation: pulse-blue 2s infinite;
+            border: 1px solid #3b82f6;
+        }
+        @keyframes pulse-blue {
+            0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4); }
+            70% { box-shadow: 0 0 0 6px rgba(59, 130, 246, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0); }
+        }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col items-center p-4 md:p-8">
+
+    <div id="loadingOverlay" class="hidden fixed inset-0 bg-black/70 z-[100] flex flex-col items-center justify-center">
+        <div class="spinner mb-4"></div>
+        <div id="loadingText" class="text-white font-bold text-lg tracking-wide">處理中...</div>
+    </div>
+
+    <!-- Header -->
+    <header class="w-full max-w-5xl mb-2 flex flex-col md:flex-row justify-between items-center mt-1 gap-2 z-10 relative">
+        <div class="flex-shrink-0 flex items-baseline">
+            <h1 class="text-2xl md:text-3xl font-bold text-teal-400 flex items-center">
+                <i class="fas fa-crosshairs mr-2"></i>錨點定位偵測器 
+            </h1>
+            <span class="ml-2 text-xs font-bold text-slate-400 bg-slate-800 px-2 py-0.5 rounded border border-slate-700">v6.9</span>
+            <span class="text-xs bg-slate-700 text-teal-200 px-2 py-1 rounded ml-2 font-normal self-center">DOM極致優化版</span>
+        </div>
+        <div class="flex gap-2 flex-wrap justify-center">
+            <button id="openDataModalBtn" class="px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs md:text-sm font-bold shadow-lg transition-colors flex items-center gap-2">
+                <i class="fas fa-database"></i> 資料備份與還原
+            </button>
+        </div>
+    </header>
+
+    <!-- Error Modal -->
+    <div id="errorModal" class="hidden fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
+        <div class="bg-slate-800 border border-red-500/50 rounded-xl p-6 max-w-md w-full shadow-2xl relative">
+            <button id="closeErrorBtn" class="absolute top-4 right-4 text-slate-400 hover:text-white">
+                <i class="fas fa-times"></i>
+            </button>
+            <div class="text-center">
+                <div class="w-16 h-16 bg-red-900/30 rounded-full flex items-center justify-center mx-auto mb-4">
+                    <i class="fas fa-exclamation-triangle text-red-500 text-2xl"></i>
+                </div>
+                <h3 class="text-xl font-bold text-white mb-2">錯誤</h3>
+                <p id="errorMessage" class="text-slate-300 text-sm mb-6 leading-relaxed break-words"></p>
+                <button onclick="document.getElementById('errorModal').classList.add('hidden')" class="w-full py-2 bg-slate-700 hover:bg-slate-600 text-white rounded-lg transition-colors">
+                    關閉
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Success Modal -->
+    <div id="successModal" class="hidden fixed inset-0 bg-black/80 z-[60] flex items-center justify-center p-4">
+        <div class="bg-slate-800 border border-green-500/50 rounded-xl p-6 max-w-md w-full shadow-2xl relative text-center">
+            <div class="w-16 h-16 bg-green-900/30 rounded-full flex items-center justify-center mx-auto mb-4 animate-bounce-short">
+                <i class="fas fa-check text-green-500 text-3xl"></i>
+            </div>
+            <h3 class="text-xl font-bold text-white mb-2">成功</h3>
+            <p id="successMessage" class="text-slate-300 text-sm">操作成功</p>
+        </div>
+    </div>
+
+    <!-- Data Management Modal -->
+    <div id="dataModal" class="hidden fixed inset-0 bg-black/90 z-50 flex items-center justify-center p-4">
+        <div class="bg-slate-800 border border-slate-600 rounded-xl max-w-2xl w-full shadow-2xl flex flex-col max-h-[90vh]">
+            <div class="p-4 border-b border-slate-700 flex justify-between items-center bg-slate-900/50 rounded-t-xl">
+                <h3 class="text-xl font-bold text-white"><i class="fas fa-save mr-2 text-indigo-400"></i>資料備份與還原</h3>
+                <button id="closeDataModalBtn" class="text-slate-400 hover:text-white transition-colors">
+                    <i class="fas fa-times text-xl"></i>
+                </button>
+            </div>
+            
+            <div class="p-6 overflow-y-auto space-y-8 scrollbar-thin">
+                <div class="space-y-4">
+                    <h4 class="text-lg font-bold text-emerald-400 border-b border-emerald-900/30 pb-2"><i class="fas fa-download mr-2"></i>導出資料 (含日誌)</h4>
+                    <div class="grid grid-cols-1 gap-4">
+                        <button id="exportFileBtn" class="p-4 bg-slate-700 hover:bg-slate-600 rounded-lg border border-slate-600 group transition-all text-left relative overflow-hidden">
+                            <div class="flex items-center justify-between mb-2">
+                                <span class="font-bold text-white group-hover:text-emerald-300">下載 HTML 檔案</span>
+                                <i class="fas fa-file-code text-2xl text-slate-500 group-hover:text-emerald-400"></i>
+                            </div>
+                            <p class="text-xs text-slate-400">推薦使用。下載 .html 格式，方便保存與查看。</p>
+                        </button>
+                    </div>
+                </div>
+                <div class="space-y-4">
+                    <h4 class="text-lg font-bold text-blue-400 border-b border-blue-900/30 pb-2"><i class="fas fa-upload mr-2"></i>匯入資料 (支援 .html/.json)</h4>
+                    <div class="p-4 bg-slate-900/50 rounded-lg border border-slate-700">
+                        <label class="block text-sm font-bold text-slate-300 mb-2">上傳檔案還原</label>
+                        <div class="flex flex-col gap-3">
+                            <div class="flex gap-2 items-center">
+                                <input type="file" id="modalImportInput" accept=".json,.html,.htm" class="hidden">
+                                <button onclick="document.getElementById('modalImportInput').click()" class="px-4 py-2 bg-slate-700 hover:bg-slate-600 text-white rounded border border-slate-500 transition-colors flex items-center gap-2">
+                                    <i class="fas fa-folder-open"></i> 選擇檔案...
+                                </button>
+                                <span id="fileNameDisplay" class="text-xs text-slate-500 truncate max-w-[200px]">未選擇檔案</span>
+                            </div>
+                            <button id="executeFileImportBtn" type="button" class="hidden w-full py-3 bg-green-600 hover:bg-green-500 text-white rounded text-sm font-bold transition-colors animate-fade-in flex items-center justify-center shadow-lg">
+                                <i class="fas fa-check mr-2"></i> 開始還原此檔案
+                            </button>
+                        </div>
+                    </div>
+                </div>
+                <div class="pt-4 border-t border-slate-700">
+                     <button id="resetAllBtn" class="w-full py-3 rounded-lg bg-red-900/20 hover:bg-red-900/40 text-red-400 text-sm font-bold border border-red-900/50 transition-colors flex items-center justify-center gap-2">
+                        <i class="fas fa-trash-alt"></i> 清除所有資料 (重置)
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Image View Modal -->
+    <div id="imgViewModal" class="hidden fixed inset-0 bg-black/90 z-[60] flex items-center justify-center p-4" onclick="closeImgModal()">
+        <div class="relative bg-slate-800 p-2 rounded-lg shadow-2xl border border-slate-600 flex flex-col items-center" onclick="event.stopPropagation()">
+            <button onclick="closeImgModal()" class="absolute -top-4 -right-4 bg-red-600 hover:bg-red-500 text-white rounded-full w-8 h-8 flex items-center justify-center shadow-lg border border-white/20 z-50">
+                <i class="fas fa-times"></i>
+            </button>
+            <div class="text-slate-300 text-sm font-bold mb-2 px-1 w-full text-center border-b border-slate-700 pb-2" id="imgModalTitle">目標預覽</div>
+            <img id="imgViewModalContent" src="" alt="Zoomed Image" class="rounded object-contain bg-black/50">
+        </div>
+    </div>
+
+    <!-- Main Content -->
+    <main class="w-full max-w-5xl grid grid-cols-1 lg:grid-cols-3 gap-6">
+        
+        <!-- Left Column -->
+        <div class="lg:col-span-2 space-y-6">
+            <div class="bg-slate-800 rounded-xl p-6 shadow-lg border border-slate-700">
+                <div id="sourceControls" class="mb-6">
+                    <button id="startBtn" class="w-full px-6 py-4 bg-teal-600 hover:bg-teal-500 text-white rounded-lg font-bold text-lg transition-colors flex items-center justify-center gap-3 shadow-lg shadow-teal-900/30">
+                        <i class="fas fa-camera"></i> 連接 OBS / 攝影機
+                    </button>
+                    <!-- NEW Scan Button (Initially Hidden) -->
+                    <button id="scanBtn" class="hidden w-full px-6 py-4 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg font-bold text-lg transition-colors flex items-center justify-center gap-3 shadow-lg shadow-emerald-900/30 animate-pulse">
+                        <i class="fas fa-play"></i> 開始掃描監控
+                    </button>
+                </div>
+                <div id="activeControls" class="hidden mb-6">
+                    <div class="flex flex-col gap-4">
+                        <div class="flex gap-2">
+                             <button id="stopBtn" class="px-6 py-3 bg-red-600 hover:bg-red-500 text-white rounded-lg font-bold transition-colors flex items-center justify-center gap-2 shadow-lg shadow-red-900/50 flex-1">
+                                <i class="fas fa-stop"></i> 停止
+                            </button>
+                            <button id="addComboBtn" class="px-6 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-bold transition-colors flex items-center justify-center gap-2 shadow-lg shadow-indigo-900/50 flex-[2]">
+                                <i class="fas fa-layer-group"></i> 新增定位組合
+                            </button>
+                        </div>
+                        <div class="bg-slate-700/30 p-3 rounded border border-slate-600 flex justify-between items-center">
+                             <div id="scanRegionStatus" class="text-xs text-slate-400 font-mono">
+                                 掃描範圍: <span class="text-white font-bold">全螢幕</span>
+                             </div>
+                             <div class="flex gap-2">
+                                 <button id="addScanRegionBtn" class="px-3 py-1.5 bg-slate-600 hover:bg-slate-500 text-white text-xs rounded border border-slate-500 flex items-center gap-1 transition-colors whitespace-nowrap">
+                                     <i class="fas fa-plus"></i> 新增範圍
+                                 </button>
+                                 <button id="clearScanRegionsBtn" class="hidden px-3 py-1.5 bg-red-900/50 hover:bg-red-800 text-red-200 text-xs rounded border border-red-700 flex items-center gap-1 transition-colors whitespace-nowrap">
+                                     <i class="fas fa-trash"></i> 清除
+                                 </button>
+                             </div>
+                        </div>
+                        <div id="cropInstruction" class="hidden bg-yellow-900/40 text-yellow-200 p-3 text-center text-sm rounded border border-yellow-600/50 animate-pulse font-bold">
+                            <i class="fas fa-mouse-pointer mr-2"></i> 請在下方畫面中拖曳，截取圖片...
+                        </div>
+                    </div>
+                </div>
+                <div class="grid grid-cols-1 md:grid-cols-2 gap-4 bg-slate-900/40 p-4 rounded-lg border border-slate-700/50">
+                    <div class="space-y-2">
+                        <div class="flex justify-between text-sm items-center mb-1">
+                            <label for="sensitivity" class="text-slate-200 font-bold"><i class="fas fa-sliders-h mr-2 text-teal-500"></i>匹配嚴格度</label>
+                            <span id="sensitivityVal" class="text-teal-400 font-mono font-bold bg-slate-800 px-2 py-1 rounded">90%</span>
+                        </div>
+                        <input type="range" id="sensitivity" min="50" max="100" value="90" class="w-full h-2 bg-slate-600 rounded-lg appearance-none cursor-pointer accent-teal-500 hover:bg-slate-500 transition-colors">
+                        <div class="flex items-center gap-4 pt-2 flex-wrap">
+                            <label class="inline-flex items-center cursor-pointer">
+                                <input type="checkbox" id="soundToggle" class="sr-only peer" checked>
+                                <div class="relative w-9 h-5 bg-slate-600 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-blue-500 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-blue-600"></div>
+                                <span class="ms-2 text-xs font-medium text-slate-400">啟用音效</span>
+                            </label>
+                            <label class="inline-flex items-center cursor-pointer">
+                                <input type="checkbox" id="showBoxesToggle" class="sr-only peer" checked>
+                                <div class="relative w-9 h-5 bg-slate-600 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-emerald-500 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-emerald-600"></div>
+                                <span class="ms-2 text-xs font-medium text-slate-400">顯示綠框</span>
+                            </label>
+                            <label class="inline-flex items-center cursor-pointer">
+                                <input type="checkbox" id="showRegionsToggle" class="sr-only peer" checked>
+                                <div class="relative w-9 h-5 bg-slate-600 peer-focus:outline-none peer-focus:ring-2 peer-focus:ring-indigo-500 rounded-full peer peer-checked:after:translate-x-full rtl:peer-checked:after:-translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-indigo-500"></div>
+                                <span class="ms-2 text-xs font-medium text-slate-400">顯示範圍</span>
+                            </label>
+                        </div>
+                    </div>
+                    <div class="space-y-2">
+                        <div class="flex justify-between text-sm items-center mb-1">
+                            <label for="checkInterval" class="text-slate-200 font-bold"><i class="fas fa-clock mr-2 text-blue-500"></i>偵測間隔 (秒)</label>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <input type="number" id="checkInterval" value="10" min="0.1" step="0.1" class="w-full bg-slate-800 border border-slate-600 text-white text-sm rounded-lg focus:ring-blue-500 focus:border-blue-500 block p-1.5 text-center font-mono">
+                            <span class="text-xs text-slate-400 whitespace-nowrap">秒/次</span>
+                        </div>
+                        <div class="relative w-full h-1.5 bg-slate-700 rounded-full overflow-hidden mt-1">
+                            <div id="countdownBar" class="absolute top-0 left-0 h-full bg-blue-500 w-0 transition-none"></div>
+                        </div>
+                        <div class="text-[10px] text-right text-blue-400 font-mono" id="nextCheckText">等待開始...</div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Video Preview -->
+            <div id="previewWrapper" class="preview-wrapper group relative">
+                <div id="statusHUD" class="absolute top-0 left-0 w-full p-2 z-50 flex flex-wrap gap-2 pointer-events-none"></div>
+                <div id="previewScroller" class="preview-scroller">
+                    <div id="zoomWrapper" class="relative origin-top-left transition-none w-full h-full">
+                        <video id="videoPreview" autoplay muted playsinline class="w-full h-full object-fill hidden"></video>
+                        <div id="flashOverlay" class="absolute inset-0 border-8 border-transparent pointer-events-none z-20 w-full h-full box-border"></div>
+                        <div id="detectionOverlays" class="absolute inset-0 w-full h-full pointer-events-none z-30"></div>
+                        <div id="cropSelection" class="cropSelection crop-selection"></div>
+                        <div id="placeholder" class="absolute inset-0 flex flex-col items-center justify-center text-slate-600 p-4 text-center w-full h-full pointer-events-none bg-black">
+                            <div class="flex gap-4 mb-4 text-4xl text-slate-700">
+                                <i class="fas fa-video"></i>
+                                <i class="fas fa-arrow-right text-sm self-center"></i>
+                                <i class="fas fa-images text-indigo-500"></i>
+                            </div>
+                            <p class="text-lg mb-2">等待連接</p>
+                            <p class="text-xs text-slate-500 max-w-xs">請先連接 OBS，再上傳多張圖片進行辨識</p>
+                        </div>
+                    </div>
+                </div>
+                <div class="absolute bottom-4 left-4 flex flex-col gap-2 z-40">
+                    <button id="zoomInBtn" class="w-8 h-8 bg-slate-700/80 hover:bg-slate-600 text-white rounded-full flex items-center justify-center backdrop-blur-sm border border-slate-500 shadow-lg transition-all"><i class="fas fa-plus"></i></button>
+                    <button id="zoomResetBtn" class="w-8 h-8 bg-slate-700/80 hover:bg-slate-600 text-white rounded-full flex items-center justify-center backdrop-blur-sm border border-slate-500 shadow-lg transition-all"><i class="fas fa-compress"></i></button>
+                    <button id="zoomOutBtn" class="w-8 h-8 bg-slate-700/80 hover:bg-slate-600 text-white rounded-full flex items-center justify-center backdrop-blur-sm border border-slate-500 shadow-lg transition-all"><i class="fas fa-minus"></i></button>
+                    <div class="bg-slate-800/80 text-white text-xs px-2 py-1 rounded text-center backdrop-blur-sm border border-slate-500 font-mono" id="zoomDisplay">1.0x</div>
+                </div>
+            </div>
+            
+             <div class="flex justify-end px-2">
+                 <div class="text-slate-400 font-mono text-sm font-bold bg-slate-800/50 px-3 py-1 rounded-lg border border-slate-700">
+                    監控中組合數: <span id="groupCountDisplay" class="text-white ml-1">0</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Right Column -->
+        <div class="lg:col-span-1 flex flex-col gap-4">
+            <div class="bg-slate-800 rounded-xl shadow-lg border border-slate-700 flex flex-col overflow-hidden">
+                <!-- Header with click to collapse -->
+                <div class="p-4 border-b border-slate-700 bg-slate-800 z-10 shrink-0">
+                    <div class="flex items-center gap-4 mb-2">
+                        <!-- Make Title Clickable to Toggle Logs -->
+                        <h2 class="font-bold text-slate-200 whitespace-nowrap cursor-pointer select-none" id="logSectionHeader">
+                            <i class="fas fa-history mr-2"></i>變動日誌 
+                            <i id="logSectionChevron" class="fas fa-chevron-down text-slate-400 text-xs ml-1 transition-transform"></i>
+                        </h2>
+                        <div class="flex items-center gap-1">
+                             <input type="date" id="logDateFilter" class="bg-slate-700 text-slate-200 text-xs rounded border border-slate-600 p-1 focus:outline-none focus:border-indigo-500">
+                             <button id="resetDateFilterBtn" class="text-slate-400 hover:text-white text-xs" title="顯示全部 (取消日期篩選)"><i class="fas fa-sync-alt"></i></button>
+                        </div>
+                        <div class="flex-1"></div>
+                        <button id="exportExcelBtn" class="text-xs bg-green-700 hover:bg-green-600 text-white px-2 py-1 rounded border border-green-600 transition-colors flex items-center gap-1 mr-2"><i class="fas fa-file-excel"></i></button>
+                        <button id="popoutLogBtn" class="text-xs text-blue-400 hover:text-blue-300 hover:underline flex items-center gap-1 transition-colors px-2 py-1"><i class="fas fa-external-link-alt text-sm"></i></button>
+                    </div>
+                    <div class="mt-1 overflow-hidden">
+                        <button id="toggleLightsBtn" class="w-full text-left flex justify-between items-center text-[10px] text-slate-400 font-bold uppercase tracking-wider hover:text-slate-200 transition-colors">
+                            <span>狀態監控 (拖曳標題排序)</span>
+                            <i id="lightsChevron" class="fas fa-chevron-down chevron"></i>
+                        </button>
+                        <div id="lightsContainer" class="lights-content pt-2 pb-1">
+                            <div id="logStatusLights" class="flex flex-col gap-2"></div>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- Collapsible Content Area -->
+                <div id="logContentArea" class="log-content-wrapper flex flex-col relative">
+                    <div id="logContainer" class="flex-1 p-4 space-y-2 font-mono text-sm scroll-smooth overflow-y-auto">
+                        <div class="text-slate-500 text-center mt-10 italic" id="emptyLogMsg">請新增組合以開始記錄...</div>
+                    </div>
+                    <div id="logPagination" class="shrink-0 bg-slate-800 border-t border-slate-700 p-2 flex justify-center items-center text-xs text-slate-400 z-10"></div>
+                </div>
+            </div>
+
+            <div class="bg-slate-800 rounded-xl shadow-lg border border-slate-700 flex flex-col overflow-visible">
+                <div id="groupListHeader" class="p-3 border-b border-slate-700 bg-slate-800 flex justify-between items-center rounded-t-xl sticky top-0 z-20 cursor-pointer select-none">
+                    <h3 class="text-sm font-bold text-slate-300 uppercase tracking-wider">監控組合列表 (可拖曳)</h3>
+                    <div class="flex items-center gap-3">
+                        <span id="groupCount" class="text-xs text-slate-500 font-mono">0 組</span>
+                        <label class="inline-flex items-center cursor-pointer" onclick="event.stopPropagation()">
+                            <input type="checkbox" id="editModeToggle" class="sr-only peer">
+                            <div class="relative w-7 h-4 bg-slate-600 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:start-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-orange-600"></div>
+                            <span class="ms-1.5 text-[10px] font-bold text-slate-400">編輯</span>
+                        </label>
+                        <i id="groupListChevron" class="fas fa-chevron-down text-slate-400 transition-transform"></i>
+                    </div>
+                </div>
+                <div id="groupListContent" class="group-list-content bg-slate-800 rounded-b-xl">
+                    <div id="groupList" class="p-3 space-y-3 relative">
+                        <div id="emptyGroupMsg" class="text-center text-slate-500 text-xs py-8 border-2 border-dashed border-slate-700 rounded-lg">
+                            點擊上方「新增定位組合」開始
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+
+    <canvas id="processCanvas" class="hidden"></canvas>
+
+    <script>
+        const startBtn = document.getElementById('startBtn');
+        const scanBtn = document.getElementById('scanBtn'); // New Button
+        const stopBtn = document.getElementById('stopBtn');
+        const addComboBtn = document.getElementById('addComboBtn');
+        const sourceControls = document.getElementById('sourceControls');
+        const activeControls = document.getElementById('activeControls');
+        const cropInstruction = document.getElementById('cropInstruction');
+        const nextCheckText = document.getElementById('nextCheckText'); // Added ref
+        
+        const groupListHeader = document.getElementById('groupListHeader');
+        const groupListContent = document.getElementById('groupListContent');
+        const groupListChevron = document.getElementById('groupListChevron');
+
+        // Log Section Collapse Elements
+        const logSectionHeader = document.getElementById('logSectionHeader');
+        const logContentArea = document.getElementById('logContentArea');
+        const logSectionChevron = document.getElementById('logSectionChevron');
+
+        const addScanRegionBtn = document.getElementById('addScanRegionBtn');
+        const clearScanRegionsBtn = document.getElementById('clearScanRegionsBtn');
+        const scanRegionStatus = document.getElementById('scanRegionStatus');
+        
+        const videoElement = document.getElementById('videoPreview');
+        const previewScroller = document.getElementById('previewScroller'); 
+        const zoomWrapper = document.getElementById('zoomWrapper');
+        const logStatusLights = document.getElementById('logStatusLights'); 
+        
+        const zoomInBtn = document.getElementById('zoomInBtn');
+        const zoomOutBtn = document.getElementById('zoomOutBtn');
+        const zoomResetBtn = document.getElementById('zoomResetBtn');
+        const zoomDisplay = document.getElementById('zoomDisplay');
+        
+        const canvas = document.getElementById('processCanvas');
+        const ctx = canvas.getContext('2d', { willReadFrequently: true });
+        
+        const sensitivityInput = document.getElementById('sensitivity');
+        const sensitivityVal = document.getElementById('sensitivityVal');
+        const checkIntervalInput = document.getElementById('checkInterval');
+        const countdownBar = document.getElementById('countdownBar');
+        
+        const flashOverlay = document.getElementById('flashOverlay');
+        const detectionOverlays = document.getElementById('detectionOverlays');
+        const cropSelection = document.getElementById('cropSelection');
+        
+        const logContainer = document.getElementById('logContainer');
+        const emptyLogMsg = document.getElementById('emptyLogMsg');
+        const popoutLogBtn = document.getElementById('popoutLogBtn');
+        const exportExcelBtn = document.getElementById('exportExcelBtn');
+        const logDateFilter = document.getElementById('logDateFilter');
+        const resetDateFilterBtn = document.getElementById('resetDateFilterBtn');
+        const logPagination = document.getElementById('logPagination');
+        
+        const placeholder = document.getElementById('placeholder');
+        const soundToggle = document.getElementById('soundToggle');
+        const showBoxesToggle = document.getElementById('showBoxesToggle');
+        const showRegionsToggle = document.getElementById('showRegionsToggle'); 
+        
+        const groupList = document.getElementById('groupList');
+        const emptyGroupMsg = document.getElementById('emptyGroupMsg');
+        const groupCountSpan = document.getElementById('groupCount');
+        const groupCountDisplay = document.getElementById('groupCountDisplay');
+        const editModeToggle = document.getElementById('editModeToggle'); 
+        
+        const dataModal = document.getElementById('dataModal');
+        const openDataModalBtn = document.getElementById('openDataModalBtn');
+        const closeDataModalBtn = document.getElementById('closeDataModalBtn');
+        const exportFileBtn = document.getElementById('exportFileBtn');
+        const modalImportInput = document.getElementById('modalImportInput');
+        const fileNameDisplay = document.getElementById('fileNameDisplay');
+        const executeFileImportBtn = document.getElementById('executeFileImportBtn');
+        const resetAllBtn = document.getElementById('resetAllBtn');
+        const loadingOverlay = document.getElementById('loadingOverlay');
+        const loadingText = document.getElementById('loadingText');
+
+        const errorModal = document.getElementById('errorModal');
+        const errorMessage = document.getElementById('errorMessage');
+        const closeErrorBtn = document.getElementById('closeErrorBtn');
+        const successModal = document.getElementById('successModal');
+        const successMessage = document.getElementById('successMessage');
+        const imgViewModal = document.getElementById('imgViewModal');
+        const imgViewModalContent = document.getElementById('imgViewModalContent');
+        const imgModalTitle = document.getElementById('imgModalTitle');
+        const lightsContainer = document.getElementById('lightsContainer');
+        const lightsChevron = document.getElementById('lightsChevron');
+        const toggleLightsBtn = document.getElementById('toggleLightsBtn');
+
+        const DETECTION_FPS = 5;  
+        const FRAME_TIME = 1000 / DETECTION_FPS;
+        const PIXEL_TOLERANCE = 15;
+        const STORAGE_KEY = 'motionDetectorData_v1';
+        let SCAN_STEP = 1; 
+        const SCAN_DELAY = 1500; 
+        let isLoaded = false; // State Lock
+
+        function showLoading(msg = '處理中...') {
+            loadingText.innerText = msg;
+            loadingOverlay.classList.remove('hidden');
+        }
+
+        function hideLoading() {
+            loadingOverlay.classList.add('hidden');
+        }
+
+        function showError(msg) {
+            errorMessage.innerHTML = msg; 
+            errorModal.classList.remove('hidden');
+        }
+
+        function showSuccess(msg) {
+            successMessage.innerText = msg;
+            successModal.classList.remove('hidden');
+            setTimeout(() => {
+                successModal.classList.add('hidden');
+            }, 1000);
+        }
+
+        function formatDuration(ms) {
+            if (ms < 1000) return "0秒";
+            const seconds = Math.floor(ms / 1000);
+            const minutes = Math.floor(seconds / 60);
+            const hours = Math.floor(minutes / 60);
+            
+            const s = seconds % 60;
+            const m = minutes % 60;
+            
+            let str = "";
+            if(hours > 0) str += `${hours}時 `;
+            if(minutes > 0) str += `${m}分 `;
+            str += `${s}秒`;
+            return str.trim();
+        }
+
+        function formatTimerDuration(ms) {
+            if (ms < 60000) return "1分內"; // < 1 min
+            const minutes = Math.floor(ms / 60000);
+            const hours = Math.floor(minutes / 60);
+            const m = minutes % 60;
+            
+            if (hours > 0) return `${hours}小時${m}分`;
+            return `${m}分`;
+        }
+
+        function safeAddEventListener(element, event, handler) {
+            if (element) {
+                element.addEventListener(event, handler);
+            } else {
+                console.warn(`Attempted to add '${event}' listener to missing element.`);
+            }
+        }
+
+        safeAddEventListener(closeErrorBtn, 'click', () => {
+            errorModal.classList.add('hidden');
+        });
+
+        safeAddEventListener(toggleLightsBtn, 'click', () => {
+            lightsContainer.classList.toggle('collapsed');
+            lightsChevron.classList.toggle('collapsed');
+        });
+
+        safeAddEventListener(groupListHeader, 'click', () => {
+            groupListContent.classList.toggle('collapsed');
+            if (groupListContent.classList.contains('collapsed')) {
+                groupListChevron.style.transform = 'rotate(-90deg)';
+            } else {
+                groupListChevron.style.transform = 'rotate(0deg)';
+            }
+        });
+
+        // Toggle Log Section
+        safeAddEventListener(logSectionHeader, 'click', () => {
+            logContentArea.classList.toggle('collapsed');
+            if (logContentArea.classList.contains('collapsed')) {
+                logSectionChevron.style.transform = 'rotate(-90deg)';
+            } else {
+                logSectionChevron.style.transform = 'rotate(0deg)';
+            }
+        });
+
+        safeAddEventListener(openDataModalBtn, 'click', () => {
+            dataModal.classList.remove('hidden');
+        });
+        safeAddEventListener(closeDataModalBtn, 'click', () => {
+            dataModal.classList.add('hidden');
+        });
+        safeAddEventListener(dataModal, 'click', (e) => {
+            if(e.target === dataModal) dataModal.classList.add('hidden');
+        });
+        
+        function openImgModal(src, title) {
+            if(!src) return;
+            imgViewModalContent.src = src;
+            imgModalTitle.innerText = title;
+            imgViewModal.classList.remove('hidden');
+        }
+
+        function closeImgModal() {
+            imgViewModal.classList.add('hidden');
+        }
+
+        let stream = null;
+        let isMonitoring = false;
+        let animationFrameId = null;
+        let timerIntervalId = null; 
+        let audioCtx = null;
+        let lastCheckTime = 0;
+        let lastScanTime = 0; 
+        let flashTimeoutId = null;
+        let selectedImportFile = null;
+        let popoutWindow = null; 
+        let categoryOrder = []; 
+        let scanRegions = []; 
+        let lastDateString = new Date().toDateString(); 
+        
+        let currentPage = 1;
+        const itemsPerPage = 10; 
+        
+        let popoutCurrentPage = 1;
+        const popoutItemsPerPage = 10; 
+
+        let isCropping = false;
+        let isDragging = false;
+        let startX, startY;
+        let videoNativeWidth = 0;
+        let videoNativeHeight = 0;
+        
+        let activeSlotInfo = null; 
+        let isScanRegionMode = false; 
+        
+        let baseWidth = 0;
+        let baseHeight = 0;
+        let scale = 1;
+        
+        let groups = [];
+        let logs = []; 
+        let nextGroupId = 1;
+        let isEditMode = false; 
+        
+        let dragSrcEl = null;
+        
+        let pendingGroupChecks = []; 
+
+        function addLogEntryToState(text, subText, type = 'system', groupId = null) {
+            const entry = { text, subText, type, time: Date.now(), groupId };
+            logs.unshift(entry);
+            
+            if (currentPage === 1 && !logDateFilter.value) {
+                prependLogEntryToDOM(entry);
+                renderAllLogs();
+            } else {
+                renderAllLogs();
+            }
+            
+            if (popoutWindow && !popoutWindow.closed && !logDateFilter.value && popoutCurrentPage === 1) {
+                renderAllLogs(); 
+            }
+
+            saveData();
+        }
+
+        // --- GLOBAL EXPORTS FOR POPUP ---
+        window.deleteLogFromPopout = function(timestamp) {
+            const index = logs.findIndex(l => l.time === parseInt(timestamp));
+            if (index > -1) {
+                const entry = logs[index];
+                removeLogEntry(entry);
+            }
+        };
+
+        window.setPopoutPage = function(page) {
+            popoutCurrentPage = parseInt(page);
+            renderAllLogs();
+        };
+        
+        window.setMainPage = function(page) {
+            currentPage = parseInt(page);
+            renderAllLogs();
+        }
+        
+        // Setup Broadcaster for Debugging
+        const channel = new BroadcastChannel('motion_debug_channel');
+        channel.onmessage = (event) => {
+            if(event.data.action === 'delete') window.deleteLogFromPopout(event.data.time);
+            if(event.data.action === 'page') window.setPopoutPage(event.data.page);
+        };
+
+        function removeLogEntry(entry) {
+            const index = logs.indexOf(entry);
+            if (index > -1) {
+                logs.splice(index, 1);
+                
+                if (entry.groupId) {
+                    const group = groups.find(g => g.id === entry.groupId);
+                    if (group) {
+                         const latest = logs.find(l => l.groupId === entry.groupId);
+                         if (latest) {
+                             group.lastChangeTime = latest.time;
+                             group.triggerState = (latest.type === 'found');
+                         }
+                         saveData();
+                         renderGroups(); 
+                         renderStatusHUD(); 
+                    }
+                }
+            }
+
+            renderAllLogs();
+            saveData();
+        }
+        
+        function prependLogEntryToDOM(entry) {
+            if(emptyLogMsg && emptyLogMsg.parentElement) {
+                emptyLogMsg.remove();
+            }
+
+            const logHtml = createLogItemHTML(entry);
+            logContainer.insertAdjacentHTML('afterbegin', logHtml);
+            
+            if (logContainer.children.length > itemsPerPage) {
+                logContainer.lastElementChild.remove();
+            }
+            
+            const newBtn = logContainer.querySelector('.delete-btn'); 
+            if(newBtn) {
+                 newBtn.addEventListener('click', (e) => {
+                    e.stopPropagation(); 
+                    removeLogEntry(entry);
+                });
+            }
+        }
+
+        function exportLogsToExcel() {
+            if (logs.length === 0) {
+                showError("沒有日誌可導出");
+                return;
+            }
+            let csvContent = "\uFEFF"; 
+            csvContent += "日期,時間,類型,訊息,詳細資訊\n"; 
+            const filterDateVal = logDateFilter.value;
+            const targetLogs = logs.filter(entry => {
+                if (!filterDateVal) return true;
+                const d = new Date(entry.time);
+                const entryDate = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+                return entryDate === filterDateVal;
+            });
+
+            if (targetLogs.length === 0) {
+                showError("目前篩選條件下沒有資料");
+                return;
+            }
+
+            targetLogs.forEach(log => {
+                const d = new Date(log.time);
+                const dateStr = d.toLocaleDateString('zh-TW');
+                const timeStr = d.toLocaleTimeString('zh-TW');
+                const typeStr = log.type === 'found' ? '出現' : (log.type === 'lost' ? '消失' : '系統');
+                const msg = `"${(log.text || '').replace(/"/g, '""')}"`;
+                const subMsg = `"${(log.subText || '').replace(/"/g, '""')}"`;
+                csvContent += `${dateStr},${timeStr},${typeStr},${msg},${subMsg}\n`; 
+            });
+
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            const link = document.createElement("a");
+            
+            const nowStr = new Date().toISOString().slice(0,10);
+            link.setAttribute("href", url);
+            link.setAttribute("download", `detector_logs_${nowStr}.csv`);
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function createLogItemHTML(entry) {
+            const date = new Date(entry.time);
+            const dateStr = date.toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' }); 
+            const fullDateStr = date.toLocaleDateString('zh-TW');
+            const timeStr = date.toLocaleTimeString('zh-TW', { hour12: true, hour: '2-digit', minute:'2-digit' });
+            
+            let colorClass = entry.type === 'found' ? 'text-green-400 font-bold' : (entry.type === 'lost' ? 'text-red-400' : 'text-slate-300');
+            let icon = entry.type === 'found' ? 'check-circle' : (entry.type === 'lost' ? 'times-circle' : 'info-circle');
+            
+            const mainMsg = entry.text || '';
+            const subMsgHTML = entry.subText ? `<div class="log-subtext">${entry.subText}</div>` : '';
+
+            return `
+                <div class="flex justify-between items-start text-slate-300 bg-slate-700/30 px-2 py-1.5 rounded border-l-2 ${entry.type === 'found' ? 'border-green-500' : 'border-slate-500'} animate-fade-in group text-xs mb-1 hover:bg-slate-700/50 transition-colors">
+                    <div class="flex flex-col items-end mr-2 min-w-[60px] text-slate-500 font-mono text-[10px] leading-tight mt-0.5">
+                        <span title="${fullDateStr}">${dateStr}</span>
+                        <span>${timeStr}</span>
+                    </div>
+                    <div class="flex-1 ${colorClass} self-start break-words leading-snug">
+                        <div><i class="fas fa-${icon} mr-1"></i>${mainMsg}</div>
+                        ${subMsgHTML}
+                    </div>
+                    <button class="delete-btn ml-1 text-slate-600 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100 px-1 mt-0.5" title="刪除此紀錄">
+                        <i class="fas fa-trash-alt text-[10px]"></i>
+                    </button>
+                </div>
+            `;
+        }
+        
+        function generatePaginationHTML(currentPage, totalPages, funcName) {
+            let html = '<div class="pagination-container">';
+            const createBtn = (p, current) => {
+                const activeClass = p === current ? 'active' : '';
+                return `<button class="page-btn ${activeClass}" onclick="${funcName}(${p})">${p}</button>`;
+            };
+            if (totalPages <= 7) {
+                for (let i = 1; i <= totalPages; i++) {
+                    html += createBtn(i, currentPage);
+                }
+            } else {
+                html += createBtn(1, currentPage);
+                if (currentPage > 3) html += '<span class="dots">...</span>';
+                let start = Math.max(2, currentPage - 1);
+                let end = Math.min(totalPages - 1, currentPage + 1);
+                if (currentPage < 4) { end = 4; start = 2; }
+                if (currentPage > totalPages - 3) { start = totalPages - 3; end = totalPages - 1; }
+                for (let i = start; i <= end; i++) html += createBtn(i, currentPage);
+                if (currentPage < totalPages - 2) html += '<span class="dots">...</span>';
+                html += createBtn(totalPages, currentPage);
+            }
+            html += '</div>';
+            return html;
+        }
+
+        function generatePopoutPaginationHTML(currentPage, totalPages) {
+            let html = '<div class="pagination-container">';
+            const createBtn = (p, current) => {
+                const activeClass = p === current ? 'active' : '';
+                // 5.7 FIX: Use multiple fallback methods in onclick
+                return `<button class="page-btn ${activeClass}" onclick="tryCall('setPopoutPage', ${p})">${p}</button>`;
+            };
+            if (totalPages <= 7) {
+                for (let i = 1; i <= totalPages; i++) html += createBtn(i, currentPage);
+            } else {
+                html += createBtn(1, currentPage);
+                if (currentPage > 3) html += '<span class="dots">...</span>';
+                let start = Math.max(2, currentPage - 1);
+                let end = Math.min(totalPages - 1, currentPage + 1);
+                if (currentPage < 4) { end = 4; start = 2; }
+                if (currentPage > totalPages - 3) { start = totalPages - 3; end = totalPages - 1; }
+                for (let i = start; i <= end; i++) html += createBtn(i, currentPage);
+                if (currentPage < totalPages - 2) html += '<span class="dots">...</span>';
+                html += createBtn(totalPages, currentPage);
+            }
+            html += '</div>';
+            return html;
+        }
+
+        function generateLogHtml(filteredLogs) {
+            const totalPages = Math.ceil(filteredLogs.length / popoutItemsPerPage);
+            if (popoutCurrentPage > totalPages) popoutCurrentPage = Math.max(1, totalPages);
+            const startIdx = (popoutCurrentPage - 1) * popoutItemsPerPage;
+            const endIdx = startIdx + popoutItemsPerPage;
+            const pageLogs = filteredLogs.slice(startIdx, endIdx);
+            if (pageLogs.length === 0 && filteredLogs.length > 0) {
+                popoutCurrentPage = Math.max(1, popoutCurrentPage - 1);
+                const newStart = (popoutCurrentPage - 1) * popoutItemsPerPage;
+                const newPageLogs = filteredLogs.slice(newStart, newStart + popoutItemsPerPage);
+                return generateLogHtmlContent(newPageLogs);
+            }
+            if (filteredLogs.length === 0) return '<div style="text-align:center; color: #64748b; margin-top: 20px;">無符合紀錄</div>';
+            return generateLogHtmlContent(pageLogs);
+        }
+
+        function generateLogHtmlContent(logs) {
+            return logs.map(entry => {
+                 const date = new Date(entry.time);
+                 const dateStr = date.toLocaleDateString('zh-TW', { month: '2-digit', day: '2-digit' });
+                 const timeStr = date.toLocaleTimeString('zh-TW', { hour12: true, hour: '2-digit', minute:'2-digit' });
+                 let colorStyle = '#cbd5e1'; 
+                 let icon = 'ℹ️';
+                 if (entry.type === 'found') { colorStyle = '#4ade80'; icon = '✅'; } 
+                 else if (entry.type === 'lost') { colorStyle = '#f87171'; icon = '❌'; }
+                 const mainMsg = entry.text || '';
+                 const subMsg = entry.subText ? `<div class="log-subtext">${entry.subText}</div>` : '';
+                 return `
+                    <div class="log-entry group">
+                        <div class="time"><span>${dateStr}</span><span>${timeStr}</span></div>
+                        <div class="message" style="color: ${colorStyle};"><div>${icon} ${mainMsg}</div>${subMsg}</div>
+                        <button class="delete-btn" onclick="tryCall('deleteLogFromPopout', ${entry.time})">🗑️</button>
+                    </div>`;
+            }).join('');
+        }
+
+        function updatePopoutWindow(filteredLogs) {
+            if (!popoutWindow || popoutWindow.closed) return;
+            const container = popoutWindow.document.getElementById('log-container');
+            const countEl = popoutWindow.document.getElementById('log-count');
+            const footerEl = popoutWindow.document.getElementById('footer');
+
+            const contentHtml = generateLogHtml(filteredLogs);
+            if (container) { container.innerHTML = contentHtml; }
+            if (countEl) { countEl.innerText = filteredLogs.length; }
+            
+            const totalPages = Math.ceil(filteredLogs.length / popoutItemsPerPage);
+            if (footerEl) {
+                if (totalPages > 1) {
+                    footerEl.innerHTML = generatePopoutPaginationHTML(popoutCurrentPage, totalPages);
+                } else {
+                    footerEl.innerHTML = '<div class="pagination-container"><span class="dots">第 1 頁</span></div>';
+                }
+            }
+            if (popoutWindow.document.getElementById('popout-status-lights')) { renderStatusHUD(true); }
+        }
+
+        function openLogWindow() {
+            if (popoutWindow && !popoutWindow.closed) {
+                popoutWindow.focus();
+                renderAllLogs(); 
+                renderStatusHUD(); 
+                return;
+            }
+            
+            popoutWindow = window.open('', 'MotionLog', 'width=500,height=800');
+            if (!popoutWindow) {
+                showError("無法開啟視窗，請檢查瀏覽器攔截設定");
+                return;
+            }
+            
+            const filterDateVal = logDateFilter.value;
+            const filteredLogs = logs.filter(entry => {
+                if (!filterDateVal) return true;
+                const d = new Date(entry.time);
+                // V4.5 Fix: Use local date parts
+                const entryDate = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+                return entryDate === filterDateVal;
+            });
+            
+            popoutCurrentPage = 1; 
+            const contentHtml = generateLogHtml(filteredLogs);
+            const totalPages = Math.ceil(filteredLogs.length / popoutItemsPerPage);
+
+            // Inject Robust Connector Script
+            const scriptBlock = `
+                <script>
+                    const channel = new BroadcastChannel('motion_debug_channel');
+                    
+                    function tryCall(funcName, arg) {
+                        // 1. Try Window Opener (Most Direct)
+                        if (window.opener && !window.opener.closed && typeof window.opener[funcName] === 'function') {
+                            window.opener[funcName](arg);
+                            return;
+                        }
+                        
+                        // 2. Try Broadcast Channel (Modern Fallback)
+                        if(funcName === 'deleteLogFromPopout') {
+                            channel.postMessage({action: 'delete', time: arg});
+                            return;
+                        }
+                        if(funcName === 'setPopoutPage') {
+                            channel.postMessage({action: 'page', page: arg});
+                            return;
+                        }
+                        
+                        alert("無法連接主視窗，請重新開啟日誌 (Connection Lost)");
+                    }
+                <\/script>
+            `;
+
+            const docContent = `
+                <!DOCTYPE html>
+                <html lang="zh-TW">
+                <head>
+                    <meta charset="UTF-8">
+                    <title>變動日誌 - 獨立視窗 (連動中)</title>
+                    <style>
+                        body { 
+                            background-color: #0f172a; 
+                            color: #e2e8f0; 
+                            font-family: system-ui, -apple-system, sans-serif; 
+                            margin: 0; 
+                            padding: 2px 4px; 
+                            font-size: 8px; 
+                            height: 100vh;
+                            display: flex;
+                            flex-direction: column;
+                            overflow: hidden; 
+                        }
+                        header {
+                            display: flex;
+                            flex-direction: column;
+                            border-bottom: 1px solid #334155; 
+                            padding-bottom: 10px; 
+                            margin-bottom: 10px;
+                            background-color: #0f172a;
+                            z-index: 10;
+                            flex-shrink: 0;
+                        }
+                        .header-row {
+                            display: flex;
+                            justify-content: space-between;
+                            align-items: center;
+                            width: 100%;
+                        }
+                        h2 { margin: 0; color: #fff; font-size: 0.75rem; } 
+                        .badge { background: #334155; color: #94a3b8; padding: 2px 8px; border-radius: 10px; font-size: 9px; }
+                        .status-lights-container { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; }
+                        .status-group { margin-bottom: 4px; }
+                        .group-title { font-size: 10px; color: #94a3b8; font-weight: bold; margin-bottom: 2px; }
+                        .lights-row { display: flex; flex-wrap: wrap; gap: 4px; }
+                        .light-container { display: flex; flex-direction: column; align-items: center; }
+                        .light {
+                            padding: 2px 6px;
+                            border-radius: 4px;
+                            font-weight: bold;
+                            font-size: 10px;
+                            cursor: default;
+                            border: 1px solid rgba(255,255,255,0.1);
+                            max-width: 120px;
+                            white-space: nowrap;
+                            overflow: hidden;
+                            text-overflow: ellipsis;
+                        }
+                        .light.green { background-color: #22c55e; color: white; box-shadow: 0 0 5px rgba(34, 197, 94, 0.5); }
+                        .light.red { background-color: rgba(220, 38, 38, 0.9); color: white; box-shadow: 0 0 5px rgba(220, 38, 38, 0.5); }
+                        .timer { font-size: 8px; color: rgba(255,255,255,0.6); margin-top: 1px; }
+                        
+                        .log-entry { display: flex; border-bottom: 1px solid #1e293b; padding: 2px 0; font-size: 8px; align-items: flex-start; line-height: 1.3; }
+                        .log-entry:hover { background-color: #1e293b; }
+                        .time { color: #64748b; font-family: monospace; margin-right: 4px; min-width: 45px; text-align: left; font-size: 8px; padding-top: 1px; display: flex; flex-direction: column; }
+                        .message { flex: 1; word-break: break-all; }
+                        .log-subtext { font-size: 6px; color: #94a3b8; margin-left: 0; line-height: 1; opacity: 0.6; }
+                        
+                        .delete-btn {
+                            opacity: 0;
+                            transition: opacity 0.2s;
+                            cursor: pointer;
+                            border: none;
+                            background: none;
+                            color: #64748b;
+                            font-size: 10px;
+                            margin-left: 4px;
+                        }
+                        .log-entry:hover .delete-btn {
+                            opacity: 1;
+                        }
+                        .delete-btn:hover {
+                            color: #f87171;
+                        }
+
+                        #log-container {
+                            flex: 1;
+                            overflow-y: auto;
+                        }
+                        footer {
+                            padding: 4px;
+                            border-top: 1px solid #334155;
+                            display: flex;
+                            justify-content: center;
+                            align-items: center;
+                            background-color: #0f172a;
+                            flex-shrink: 0;
+                            overflow: hidden;
+                        }
+                        
+                        /* Hide Scrollbar */
+                        ::-webkit-scrollbar { width: 0px; display: none; }
+                        * { -ms-overflow-style: none; scrollbar-width: none; }
+
+                        .pagination-container {
+                            display: flex;
+                            gap: 2px;
+                            align-items: center;
+                            transform: scale(0.5); 
+                            transform-origin: center bottom;
+                        }
+                        .page-btn {
+                            background: transparent;
+                            color: #64748b;
+                            border: 1px solid #334155;
+                            min-width: 14px;
+                            height: 14px;
+                            font-size: 8px;
+                            padding: 0 1px;
+                            border-radius: 2px;
+                            cursor: pointer;
+                            display: flex;
+                            align-items: center;
+                            justify-content: center;
+                            font-family: monospace;
+                            transition: all 0.1s;
+                        }
+                        .page-btn:hover {
+                            color: #e2e8f0;
+                            border-color: #475569;
+                            background-color: #1e293b;
+                        }
+                        .page-btn.active {
+                            background-color: #2563eb;
+                            color: #fff;
+                            border-color: #2563eb;
+                            font-weight: bold;
+                        }
+                        .dots {
+                            color: #475569;
+                            font-size: 10px;
+                            padding: 0 1px;
+                        }
+                    </style>
+                    ${scriptBlock}
+                </head>
+                <body>
+                    <header>
+                        <div class="header-row">
+                            <h2>📋 變動日誌</h2>
+                            <span class="badge">紀錄數: <span id="log-count">0</span></span>
+                        </div>
+                        <div id="popout-status-lights" class="status-lights-container"></div>
+                    </header>
+                    <div id="log-container"></div>
+                    <footer id="footer"></footer>
+                </body>
+                </html>
+            `;
+            
+            popoutWindow.document.write(docContent);
+            popoutWindow.document.close();
+            
+            setTimeout(() => {
+                renderAllLogs();
+                renderStatusHUD(true);
+            }, 100);
+        }
+
+        function renderAllLogs() {
+            logContainer.innerHTML = '';
+            
+            const filterDateVal = logDateFilter.value; 
+            
+            // 1. Filter by date (or show all)
+            const filteredLogs = logs.filter(entry => {
+                if (!filterDateVal) return true;
+                const d = new Date(entry.time);
+                const entryDate = `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;
+                return entryDate === filterDateVal;
+            });
+
+            // Update Popout (Popout shows full list for now, or we could sync pagination but usually popout is for overview)
+            updatePopoutWindow(filteredLogs);
+
+            if (filteredLogs.length === 0) {
+                logContainer.innerHTML = `<div class="text-slate-500 text-center mt-10 italic">無符合紀錄</div>`;
+                logPagination.innerHTML = '';
+                return;
+            }
+
+            // 2. Pagination Logic
+            const totalPages = Math.ceil(filteredLogs.length / itemsPerPage);
+            if (currentPage > totalPages) currentPage = totalPages;
+            if (currentPage < 1) currentPage = 1;
+            
+            const startIdx = (currentPage - 1) * itemsPerPage;
+            const endIdx = startIdx + itemsPerPage;
+            const paginatedLogs = filteredLogs.slice(startIdx, endIdx);
+
+            // 3. Render Logs
+            paginatedLogs.forEach(entry => {
+                const html = createLogItemHTML(entry);
+                logContainer.insertAdjacentHTML('beforeend', html);
+                
+                // Add event listener to last added
+                const lastEl = logContainer.lastElementChild;
+                const delBtn = lastEl.querySelector('.delete-btn');
+                if(delBtn) {
+                    delBtn.addEventListener('click', (e) => {
+                        e.stopPropagation(); 
+                        removeLogEntry(entry);
+                    });
+                }
+            });
+            
+            // 4. Render Numeric Pagination for Main Window
+            if (totalPages > 1) {
+                logPagination.innerHTML = generatePaginationHTML(currentPage, totalPages, 'setMainPage');
+            } else {
+                logPagination.innerHTML = '<span class="text-xs text-slate-500">第 1 頁</span>';
+            }
+            
+            // Scroll to top of log container on page change
+            logContainer.scrollTop = 0;
+        }
+        
+        // Removed old pagination listeners
+        
+        safeAddEventListener(logDateFilter, 'change', () => {
+             currentPage = 1; // Reset to first page on filter change
+             renderAllLogs();
+        });
+        
+        safeAddEventListener(resetDateFilterBtn, 'click', () => {
+            logDateFilter.value = '';
+            currentPage = 1;
+            renderAllLogs();
+        });
+
+        // Initialize Date Filter - V4.6 Changed: Don't set default date, show all
+        // logDateFilter.valueAsDate = new Date(); 
+
+        // --- Persistence Functions ---
+        
+        function prepareDataForSave(fullGroups) {
+             return fullGroups.map(g => {
+                const newG = { ...g };
+                newG.triggerState = false;
+                if (newG.mainSlot) {
+                    const { imageData, ...rest } = newG.mainSlot;
+                    newG.mainSlot = rest; 
+                }
+                newG.subSlots = newG.subSlots.map(s => {
+                    if (!s) return null;
+                    const { imageData, ...rest } = s;
+                    return rest;
+                });
+                return newG;
+            });
+        }
+
+        function saveData() {
+            if (!isLoaded) return; // Prevent overwriting if not loaded
+            try {
+                const groupsToSave = prepareDataForSave(groups);
+                const data = {
+                    groups: groupsToSave,
+                    logs: logs, 
+                    nextGroupId,
+                    categoryOrder, 
+                    scanRegions, 
+                    sensitivity: sensitivityInput.value,
+                    checkInterval: checkIntervalInput.value,
+                    scanStep: SCAN_STEP,
+                    soundEnabled: soundToggle.checked,
+                    showBoxes: showBoxesToggle.checked,
+                    showRegions: showRegionsToggle.checked
+                };
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(data));
+            } catch (e) {
+                console.error("Save failed (Quota exceeded?):", e);
+            }
+        }
+        
+        async function restoreImageDataFromUrl(url, width, height) {
+            return new Promise((resolve, reject) => {
+                const img = new Image();
+                const timeout = setTimeout(() => reject(new Error("圖片載入超時")), 5000); 
+                img.onload = () => {
+                    clearTimeout(timeout);
+                    const tempCanvas = document.createElement('canvas');
+                    tempCanvas.width = width;
+                    tempCanvas.height = height;
+                    const tCtx = tempCanvas.getContext('2d');
+                    tCtx.drawImage(img, 0, 0);
+                    try {
+                        const imageData = tCtx.getImageData(0, 0, width, height);
+                        resolve(imageData);
+                    } catch (e) {
+                        reject(e);
+                    }
+                };
+                img.onerror = (e) => {
+                    clearTimeout(timeout);
+                    reject(new Error("圖片載入失敗"));
+                };
+                img.src = url;
+            });
+        }
+
+        async function restoreGroups(dataGroups) {
+            const restoredGroups = dataGroups;
+            for (let group of restoredGroups) {
+                if (!group.lastChangeTime) group.lastChangeTime = Date.now();
+                if (!group.lastScores) group.lastScores = {};
+                if (!group.category) group.category = "預設群組";
+                if (!group.assignedRegion) group.assignedRegion = 'all';
+
+                if (group.mainSlot && group.mainSlot.displayUrl) {
+                    try {
+                        group.mainSlot.imageData = await restoreImageDataFromUrl(
+                            group.mainSlot.displayUrl, 
+                            group.mainSlot.width, 
+                            group.mainSlot.height
+                        );
+                    } catch (e) {
+                        console.warn("Failed to restore main image", e);
+                        group.mainSlot = null;
+                    }
+                }
+                for (let i = 0; i < group.subSlots.length; i++) {
+                    const slot = group.subSlots[i];
+                    if (slot && slot.displayUrl) {
+                        try {
+                            slot.imageData = await restoreImageDataFromUrl(
+                                slot.displayUrl,
+                                slot.width,
+                                slot.height
+                            );
+                        } catch (e) {
+                            console.warn("Failed to restore sub image", e);
+                            group.subSlots[i] = null;
+                        }
+                    }
+                }
+            }
+            return restoredGroups;
+        }
+
+        async function loadData() {
+            const raw = localStorage.getItem(STORAGE_KEY);
+            if (!raw) {
+                isLoaded = true; // No data, but considered loaded empty
+                return;
+            }
+            try {
+                const data = JSON.parse(raw);
+                await applyLoadedData(data, false);
+            } catch (e) {
+                console.error("Load failed:", e);
+                showError("自動讀取暫存資料失敗，請嘗試清除資料。");
+            } finally {
+                isLoaded = true;
+            }
+        }
+
+        async function applyLoadedData(data, showSuccessMsg = true) {
+            if (data.sensitivity) {
+                sensitivityInput.value = data.sensitivity;
+                sensitivityVal.innerText = `${data.sensitivity}%`;
+            }
+            if (data.checkInterval) checkIntervalInput.value = data.checkInterval;
+            if (data.scanStep) {
+                SCAN_STEP = data.scanStep;
+            }
+            if (data.soundEnabled !== undefined) soundToggle.checked = data.soundEnabled;
+            if (data.showBoxes !== undefined) showBoxesToggle.checked = data.showBoxes;
+            if (data.showRegions !== undefined) showRegionsToggle.checked = data.showRegions; 
+            
+            if (data.nextGroupId) nextGroupId = data.nextGroupId;
+            if (data.categoryOrder) categoryOrder = data.categoryOrder;
+            if (data.scanRegions) scanRegions = data.scanRegions;
+            
+            renderScanRegions();
+            updateScanRegionStatus();
+            
+            if (data.logs && Array.isArray(data.logs)) {
+                logs = data.logs;
+                renderAllLogs();
+            }
+
+            if (data.groups && Array.isArray(data.groups)) {
+                groups = await restoreGroups(data.groups);
+                renderGroups();
+                renderStatusHUD(); 
+                startUiTimer();
+            }
+            
+            if(showSuccessMsg) {
+                showSuccess("資料還原成功");
+                dataModal.classList.add('hidden');
+            }
+        }
+
+        function clearData() {
+            if(confirm("確定要清除所有設定和圖片嗎？此操作無法復原。")) {
+                localStorage.removeItem(STORAGE_KEY);
+                location.reload();
+            }
+        }
+
+        function getSnapshotData() {
+            const groupsToSave = prepareDataForSave(groups);
+            return {
+                version: 2,
+                timestamp: Date.now(),
+                groups: groupsToSave,
+                logs: logs,
+                nextGroupId,
+                categoryOrder,
+                scanRegions,
+                sensitivity: sensitivityInput.value,
+                checkInterval: checkIntervalInput.value,
+                scanStep: SCAN_STEP,
+                soundEnabled: soundToggle.checked,
+                showBoxes: showBoxesToggle.checked,
+                showRegions: showRegionsToggle.checked
+            };
+        }
+
+        function exportFile() {
+            try {
+                showLoading("準備導出...");
+                setTimeout(() => {
+                    try {
+                        const data = getSnapshotData();
+                        const jsonStr = JSON.stringify(data);
+                        const endScript = '<' + '/script>';
+                        const htmlContent = '<!-- MOTION DETECTOR BACKUP FILE -->\n' +
+'<script id="motion-data" type="application/json">\n' +
+jsonStr.replace(/<\/script>/g, '<\\/script>') + '\n' +
+endScript;
+                        const blob = new Blob([htmlContent], { type: "text/html" });
+                        const url = URL.createObjectURL(blob);
+                        const now = new Date();
+                        const dateStr = `${now.getFullYear()}${String(now.getMonth()+1).padStart(2,'0')}${String(now.getDate()).padStart(2,'0')}`;
+                        const timeStr = `${String(now.getHours()).padStart(2,'0')}${String(now.getMinutes()).padStart(2,'0')}`;
+                        const downloadAnchorNode = document.createElement('a');
+                        downloadAnchorNode.setAttribute("href", url);
+                        downloadAnchorNode.setAttribute("download", `detector_backup_${dateStr}_${timeStr}.html`);
+                        document.body.appendChild(downloadAnchorNode); 
+                        downloadAnchorNode.click();
+                        document.body.removeChild(downloadAnchorNode);
+                        URL.revokeObjectURL(url); 
+                        showSuccess("HTML 備份檔已下載");
+                    } catch (e) {
+                        console.error(e);
+                        showError("導出失敗: " + e.message);
+                    } finally {
+                        hideLoading();
+                    }
+                }, 100);
+            } catch (e) {
+                hideLoading();
+                showError("導出失敗: " + e.message);
+            }
+        }
+
+        async function processImportData(data) {
+            if (!data.groups && !Array.isArray(data.groups)) {
+                throw new Error("無效的資料格式 (缺 group 資料)");
+            }
+            await applyLoadedData(data, true);
+            saveData(); 
+        }
+
+        function extractDataFromHtml(content) {
+            if (content.trim().startsWith('{')) {
+                try { return JSON.parse(content); } catch(e) {}
+            }
+            const openTag = '<script id="motion-data" type="application/json">';
+            const closeTag = '<' + '/script>';
+            const startIndex = content.indexOf(openTag);
+            if (startIndex !== -1) {
+                const dataStart = startIndex + openTag.length;
+                const endIndex = content.lastIndexOf(closeTag);
+                if (endIndex > dataStart) {
+                    const jsonStr = content.substring(dataStart, endIndex);
+                    try {
+                        return JSON.parse(jsonStr);
+                    } catch (e) {
+                        throw new Error("JSON 解析失敗: " + e.message);
+                    }
+                }
+            }
+            throw new Error("無法辨識資料格式 (找不到有效的 JSON 或 Script 標籤)");
+        }
+
+        function handleFileSelect(e) {
+            const file = e.target.files[0];
+            if (!file) return;
+            selectedImportFile = file;
+            fileNameDisplay.innerText = file.name;
+            fileNameDisplay.classList.add("text-white");
+            executeFileImportBtn.classList.remove('hidden');
+        }
+
+        function executeFileImport() {
+            if (!selectedImportFile) return;
+            showLoading("讀取並還原中...");
+            const reader = new FileReader();
+            reader.onload = async function(event) {
+                try {
+                    const content = event.target.result;
+                    let data;
+                    if (selectedImportFile.name.endsWith('.json')) {
+                        data = JSON.parse(content);
+                    } else {
+                        data = extractDataFromHtml(content);
+                    }
+                    setTimeout(async () => {
+                        try {
+                            await processImportData(data);
+                            selectedImportFile = null;
+                            executeFileImportBtn.classList.add('hidden');
+                            fileNameDisplay.innerText = "未選擇檔案";
+                            fileNameDisplay.classList.remove("text-white");
+                            modalImportInput.value = '';
+                        } catch (err) {
+                            showError("還原過程錯誤: " + err.message);
+                        } finally {
+                            hideLoading();
+                        }
+                    }, 50);
+                } catch(err) {
+                    console.error(err);
+                    hideLoading();
+                    showError("匯入失敗: " + err.message);
+                }
+            };
+            reader.onerror = () => {
+                hideLoading();
+                showError("讀取檔案失敗");
+            };
+            reader.readAsText(selectedImportFile);
+        }
+
+        // --- Event Listeners ---
+        resetAllBtn.addEventListener('click', clearData);
+        exportFileBtn.addEventListener('click', exportFile);
+        modalImportInput.addEventListener('change', handleFileSelect);
+        executeFileImportBtn.addEventListener('click', executeFileImport);
+        
+        safeAddEventListener(popoutLogBtn, 'click', openLogWindow); // Added back!
+        safeAddEventListener(exportExcelBtn, 'click', exportLogsToExcel); // Added back!
+        
+        showBoxesToggle.addEventListener('change', () => {
+            saveData();
+            if (!showBoxesToggle.checked) {
+                document.querySelectorAll('.detection-box').forEach(el => el.remove());
+            } else {
+                groups.forEach(g => {
+                    if (g.latestRects) {
+                        if (g.latestRects.main) {
+                             showGroupDetectionBox(g.id, g.latestRects.main.x, g.latestRects.main.y, g.latestRects.main.w, g.latestRects.main.h, 'main', 0);
+                        }
+                        g.latestRects.subs.forEach((r, idx) => {
+                            if(r) showGroupDetectionBox(g.id, r.x, r.y, r.w, r.h, 'sub', idx);
+                        });
+                    }
+                });
+            }
+        });
+        showRegionsToggle.addEventListener('change', () => { 
+            saveData();
+            renderScanRegions(); 
+        });
+        
+        editModeToggle.addEventListener('change', () => {
+            isEditMode = editModeToggle.checked;
+            document.getElementById('groupList').classList.toggle('is-edit-mode', isEditMode);
+            const cards = document.querySelectorAll('.group-card');
+            cards.forEach(card => card.draggable = isEditMode);
+        });
+
+        function playAlertSound(type = 'found') {
+            if (!soundToggle.checked) return;
+            try {
+                if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                const oscillator = audioCtx.createOscillator();
+                const gainNode = audioCtx.createGain();
+                if (type === 'found') {
+                    oscillator.frequency.setValueAtTime(880, audioCtx.currentTime); 
+                    oscillator.frequency.exponentialRampToValueAtTime(1760, audioCtx.currentTime + 0.1); 
+                } else {
+                    oscillator.frequency.setValueAtTime(440, audioCtx.currentTime); 
+                    oscillator.frequency.exponentialRampToValueAtTime(220, audioCtx.currentTime + 0.2); 
+                }
+                oscillator.type = 'sine';
+                gainNode.gain.setValueAtTime(0.1, audioCtx.currentTime);
+                gainNode.gain.exponentialRampToValueAtTime(0.01, audioCtx.currentTime + 0.2);
+                oscillator.connect(gainNode);
+                gainNode.connect(audioCtx.destination);
+                oscillator.start();
+                oscillator.stop(audioCtx.currentTime + 0.2);
+            } catch(e) {
+                console.warn("Audio play failed");
+            }
+        }
+
+        function triggerFlash() {
+            flashOverlay.classList.remove('flash-border');
+            void flashOverlay.offsetWidth; 
+            flashOverlay.classList.add('flash-border');
+            if (flashTimeoutId) clearTimeout(flashTimeoutId);
+            flashTimeoutId = setTimeout(() => {
+                flashOverlay.classList.remove('flash-border');
+            }, 3000); 
+        }
+
+        function showDetectionBox(x, y, w, h, isMain = false) {
+            if (!showBoxesToggle.checked) return;
+            if (!videoElement.videoWidth || !videoElement.videoHeight) return;
+            const perX = (x / videoElement.videoWidth) * 100;
+            const perY = (y / videoElement.videoHeight) * 100;
+            const perW = (w / videoElement.videoWidth) * 100;
+            const perH = (h / videoElement.videoHeight) * 100;
+            const box = document.createElement('div');
+            box.className = 'detection-box';
+            if (isMain) box.classList.add('main-anchor');
+            box.style.left = `${perX}%`;
+            box.style.top = `${perY}%`;
+            box.style.width = `${perW}%`;
+            box.style.height = `${perH}%`;
+            detectionOverlays.appendChild(box);
+        }
+        
+        function clearGroupBoxes(groupId) {
+            const existing = document.querySelectorAll(`.detection-box[data-group-id="${groupId}"]`);
+            existing.forEach(el => el.remove());
+        }
+
+        function handleFalsePositive(groupId, slotType, slotIndex, element) {
+            const group = groups.find(g => g.id === groupId);
+            if (!group) return;
+
+            let targetSlot = null;
+            if (slotType === 'main') {
+                targetSlot = group.mainSlot;
+            } else {
+                targetSlot = group.subSlots[slotIndex];
+            }
+
+            if (targetSlot) {
+                targetSlot.weightCorrection = (targetSlot.weightCorrection || 0) + 3;
+                saveData();
+                showSuccess("誤判修正：已扣除 3% 權重");
+                
+                // V4.3.1 CHANGE: Only remove the specific clicked box element
+                if(element) element.remove();
+            }
+        }
+
+        function showGroupDetectionBox(groupId, x, y, w, h, slotType, slotIndex) {
+            if (!showBoxesToggle.checked) return;
+            if (!videoElement.videoWidth) return;
+            const perX = (x / videoElement.videoWidth) * 100;
+            const perY = (y / videoElement.videoHeight) * 100;
+            const perW = (w / videoElement.videoWidth) * 100;
+            const perH = (h / videoElement.videoHeight) * 100;
+            const box = document.createElement('div');
+            box.className = 'detection-box';
+            box.setAttribute('data-group-id', groupId);
+            if (slotType === 'main') box.classList.add('main-anchor');
+            box.style.left = `${perX}%`;
+            box.style.top = `${perY}%`;
+            box.style.width = `${perW}%`;
+            box.style.height = `${perH}%`;
+            
+            // Create Close Button
+            const closeBtn = document.createElement('div');
+            closeBtn.className = 'detection-close-btn';
+            closeBtn.innerHTML = '<i class="fas fa-times"></i>';
+            closeBtn.title = "標記為誤判 (扣除 3% 權重)";
+            
+            // V4.3.1: Pass 'box' (the DOM element) to handleFalsePositive
+            closeBtn.onclick = (e) => {
+                e.stopPropagation();
+                handleFalsePositive(groupId, slotType, slotIndex, box);
+            };
+            box.appendChild(closeBtn);
+
+            detectionOverlays.appendChild(box);
+        }
+
+        // --- Group Management & Drag n Drop ---
+
+        function getNextAvailableId() {
+            const existingIds = groups.map(g => g.id);
+            let id = 1;
+            while (existingIds.includes(id)) { id++; }
+            return id;
+        }
+
+        function updateGroupScanRegion(id, regionVal) {
+             const group = groups.find(g => g.id === id);
+             if (group) {
+                 group.assignedRegion = regionVal;
+                 saveData();
+             }
+        }
+
+        // --- HUD Drag & Drop Logic ---
+        let hudDragSrcEl = null;
+
+        function handleHudDragStart(e) {
+            hudDragSrcEl = this;
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('type', 'hud-category'); 
+            e.dataTransfer.setData('text/plain', this.dataset.cat);
+            this.classList.add('hud-draggable-source');
+        }
+
+        function handleHudDragOver(e) {
+            if (e.preventDefault) e.preventDefault();
+            return false;
+        }
+
+        function handleHudDragEnter(e) {
+            this.classList.add('opacity-50');
+        }
+
+        function handleHudDragLeave(e) {
+            this.classList.remove('opacity-50');
+        }
+
+        function handleHudDrop(e) {
+            if (e.stopPropagation) e.stopPropagation();
+            
+            const dragType = e.dataTransfer.getData('type');
+            if (dragType !== 'hud-category') return false; 
+
+            const sourceCat = e.dataTransfer.getData('text/plain');
+            const targetCat = this.dataset.cat;
+
+            if (sourceCat !== targetCat) {
+                const srcIdx = categoryOrder.indexOf(sourceCat);
+                const tgtIdx = categoryOrder.indexOf(targetCat);
+                
+                if (srcIdx > -1 && tgtIdx > -1) {
+                    categoryOrder.splice(srcIdx, 1);
+                    categoryOrder.splice(tgtIdx, 0, sourceCat);
+                    saveData();
+                    renderStatusHUD();
+                }
+            }
+            this.classList.remove('opacity-50');
+            return false;
+        }
+
+        function handleHudDragEnd(e) {
+            if(hudDragSrcEl) hudDragSrcEl.classList.remove('hud-draggable-source');
+            const items = document.querySelectorAll('.hud-category-wrapper');
+            items.forEach(item => item.classList.remove('opacity-50'));
+        }
+
+        // --- Status Lights HUD Grouping Logic ---
+        function renderStatusHUD(forcePopout = false) {
+            const grouped = {};
+            const presentCategories = new Set();
+            
+            groups.forEach(g => {
+                const cat = g.category || "預設群組";
+                if(!grouped[cat]) grouped[cat] = [];
+                grouped[cat].push(g);
+                presentCategories.add(cat);
+            });
+
+            presentCategories.forEach(cat => {
+                if (!categoryOrder.includes(cat)) {
+                    categoryOrder.push(cat);
+                }
+            });
+            const renderKeys = categoryOrder.filter(cat => presentCategories.has(cat));
+
+            // 1. Render for Main Window
+            if (logStatusLights) {
+                logStatusLights.innerHTML = '';
+                renderKeys.forEach(cat => {
+                    const groupDiv = document.createElement('div');
+                    groupDiv.className = "hud-category-wrapper flex flex-col gap-1 mr-4 mb-2 min-w-[80px] cursor-move transition-all";
+                    groupDiv.draggable = true;
+                    groupDiv.dataset.cat = cat;
+                    
+                    groupDiv.addEventListener('dragstart', handleHudDragStart);
+                    groupDiv.addEventListener('dragover', handleHudDragOver);
+                    groupDiv.addEventListener('dragenter', handleHudDragEnter);
+                    groupDiv.addEventListener('dragleave', handleHudDragLeave);
+                    groupDiv.addEventListener('drop', handleHudDrop);
+                    groupDiv.addEventListener('dragend', handleHudDragEnd);
+                    
+                    const title = document.createElement('div');
+                    title.className = "text-[9px] text-indigo-300 font-bold pb-0.5 mb-1 select-none"; 
+                    title.innerText = cat;
+                    groupDiv.appendChild(title);
+                    
+                    const lightsRow = document.createElement('div');
+                    lightsRow.className = "flex flex-wrap gap-1";
+                    grouped[cat].forEach(g => {
+                        lightsRow.appendChild(createLightElement(g, false));
+                    });
+                    groupDiv.appendChild(lightsRow);
+                    logStatusLights.appendChild(groupDiv);
+                });
+            }
+
+            // 2. Render for Popout Window
+            if (popoutWindow && !popoutWindow.closed) {
+                const popContainer = popoutWindow.document.getElementById('popout-status-lights');
+                if (popContainer) {
+                    popContainer.innerHTML = '';
+                    renderKeys.forEach(cat => {
+                        const groupSection = popoutWindow.document.createElement('div');
+                        groupSection.className = 'status-group';
+                        
+                        const title = popoutWindow.document.createElement('div');
+                        title.className = 'group-title';
+                        title.innerText = cat;
+                        groupSection.appendChild(title);
+                        
+                        const row = popoutWindow.document.createElement('div');
+                        row.className = 'lights-row';
+                        grouped[cat].forEach(g => {
+                            row.appendChild(createLightElement(g, true));
+                        });
+                        groupSection.appendChild(row);
+                        popContainer.appendChild(groupSection);
+                    });
+                }
+            }
+        }
+        
+        function createLightElement(g, forPopout) {
+            const container = forPopout ? popoutWindow.document.createElement('div') : document.createElement('div');
+            container.className = "light-container flex flex-col items-center";
+
+            const light = forPopout ? popoutWindow.document.createElement('div') : document.createElement('div');
+            light.id = `hud-light-${g.id}`; 
+            
+            let baseClass = "px-2 py-1 rounded shadow-md font-bold text-xs transition-colors duration-200 border cursor-default select-none max-w-[120px] truncate";
+            let activeClass = g.triggerState 
+                ? "bg-green-500 text-white shadow-green-500/50 border-white/20" 
+                : "bg-red-600/90 text-white shadow-red-900/50 border-white/10";
+            
+            if (forPopout) {
+                light.className = `light ${g.triggerState ? 'green' : 'red'}`;
+            } else {
+                light.className = `${baseClass} ${activeClass}`;
+            }
+            
+            light.title = g.name; 
+            light.innerText = g.name; 
+            container.appendChild(light);
+
+            // Timer Span
+            const timer = forPopout ? popoutWindow.document.createElement('div') : document.createElement('span');
+            timer.id = `hud-timer-${g.id}`;
+            if (forPopout) {
+                 timer.className = "timer";
+            } else {
+                 timer.className = "text-[8px] text-white/60 font-mono mt-0.5 h-[12px] opacity-70 leading-none"; 
+            }
+            container.appendChild(timer);
+
+            return container;
+        }
+        
+        function updateStatusLight(groupId, isTriggered) {
+            renderStatusHUD();
+        }
+
+        // --- V4.9 Optimized Status Updates ---
+        function updateCardStatus(group) {
+            const statusEl = document.getElementById(`status-${group.id}`);
+            const timerEl = document.getElementById(`timer-${group.id}`);
+            
+            // Update Status Text & Class (Fallback if not handled in loop)
+            if (statusEl) {
+                if (group.triggerState) {
+                    statusEl.innerText = "🟢 驗證成功";
+                    statusEl.className = "text-[10px] bg-green-900/50 text-green-400 px-2 py-0.5 rounded font-bold border border-green-500";
+                } else if (!group.latestRects || !group.latestRects.main) {
+                    // Only reset text if we are sure we lost the main target or explicitly setting to lost
+                    // Note: 'Searching...' is usually set before calling this in non-match cases
+                    // But if called from resetGroupStatus or load, we might need defaults
+                }
+            }
+
+            // Update Timer Style
+            if (timerEl) {
+                const colorClass = group.triggerState ? "text-green-400" : "text-slate-500";
+                timerEl.className = `text-[10px] font-mono ml-2 border-l border-slate-600 pl-2 ${colorClass}`;
+            }
+
+            // Update Reset Button (Pre-rendered Logic)
+            if (statusEl && statusEl.parentElement && statusEl.parentElement.parentElement) {
+                const statusRow = statusEl.parentElement.parentElement; // .flex.justify-between
+                const resetBtn = statusRow.querySelector('.reset-btn');
+                
+                if (resetBtn) {
+                    if (group.triggerState) {
+                        resetBtn.classList.remove('hidden');
+                    } else {
+                        resetBtn.classList.add('hidden');
+                    }
+                }
+            }
+        }
+
+        function updateHudStatus(group) {
+            // Update Main Window HUD Light
+            const light = document.getElementById(`hud-light-${group.id}`);
+            if (light) {
+                let baseClass = "px-2 py-1 rounded shadow-md font-bold text-xs transition-colors duration-200 border cursor-default select-none max-w-[120px] truncate";
+                let activeClass = group.triggerState 
+                    ? "bg-green-500 text-white shadow-green-500/50 border-white/20" 
+                    : "bg-red-600/90 text-white shadow-red-900/50 border-white/10";
+                light.className = `${baseClass} ${activeClass}`;
+            }
+
+            // Update Popout Window HUD Light
+            if (popoutWindow && !popoutWindow.closed) {
+                const popLight = popoutWindow.document.getElementById(`hud-light-${group.id}`);
+                if (popLight) {
+                    popLight.className = group.triggerState ? "light green" : "light red";
+                }
+            }
+        }
+
+        addComboBtn.addEventListener('click', () => {
+            const newId = getNextAvailableId();
+            const group = {
+                id: newId,
+                name: `組合 #${newId}`,
+                category: "預設群組",
+                mainSlot: null,
+                subSlots: [null, null, null], 
+                triggerState: false,
+                lastChangeTime: Date.now(),
+                lastScores: {}, 
+                latestRects: null, // V4.2 Cache rects for immediate display
+                successMessage: "偵測成功", 
+                lostMessage: "已消失",
+                assignedRegion: 'all' // Default Scan All
+            };
+            groups.push(group);
+            renderGroups();
+            renderStatusHUD(); 
+            saveData(); 
+            showSuccess(`已新增組合 #${newId}`);
+        });
+
+        function removeGroup(id) {
+            groups = groups.filter(g => g.id !== id);
+            clearGroupBoxes(id);
+            renderGroups();
+            renderStatusHUD(); 
+            saveData(); 
+        }
+        
+        function updateGroupName(id, newName) {
+            const group = groups.find(g => g.id === id);
+            if(group) {
+                group.name = newName;
+                saveData(); 
+                renderStatusHUD(); 
+            }
+        }
+        
+        function updateGroupCategory(id, newCat) {
+            const group = groups.find(g => g.id === id);
+            if(group) {
+                group.category = newCat || "未分類";
+                saveData();
+                renderStatusHUD();
+            }
+        }
+
+        function updateGroupSuccessMessage(id, newMessage) {
+            const group = groups.find(g => g.id === id);
+            if(group) {
+                group.successMessage = newMessage;
+                saveData(); 
+            }
+        }
+
+        function updateGroupLostMessage(id, newMessage) {
+            const group = groups.find(g => g.id === id);
+            if(group) {
+                group.lostMessage = newMessage;
+                saveData(); 
+            }
+        }
+        
+        function resetGroupStatus(id) {
+            const group = groups.find(g => g.id === id);
+            if(group) {
+                group.triggerState = false;
+                group.lastChangeTime = Date.now(); 
+                // renderGroups(); // Removed to avoid redraw
+                updateCardStatus(group); // Use optimized update
+                updateStatusLight(group.id, false); 
+                showSuccess("狀態已重置為監控中");
+            }
+        }
+
+        // Drag and Drop Logic for Group List
+        let draggedItem = null;
+
+        function handleDragStart(e) {
+            this.classList.add('draggable-source');
+            draggedItem = this;
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', this.dataset.index);
+        }
+
+        function handleDragOver(e) {
+            if (e.preventDefault) e.preventDefault(); 
+            e.dataTransfer.dropEffect = 'move';
+            return false;
+        }
+
+        function handleDragEnter(e) {
+            this.classList.add('border-indigo-500');
+        }
+
+        function handleDragLeave(e) {
+            this.classList.remove('border-indigo-500');
+        }
+
+        function handleDrop(e) {
+            if (e.stopPropagation) e.stopPropagation(); 
+            
+            const sourceIndex = parseInt(e.dataTransfer.getData('text/plain'));
+            const targetIndex = parseInt(this.dataset.index);
+            
+            if (isNaN(sourceIndex)) return false; 
+
+            if (sourceIndex !== targetIndex) {
+                const item = groups.splice(sourceIndex, 1)[0];
+                groups.splice(targetIndex, 0, item);
+                saveData();
+                renderGroups();
+                renderStatusHUD(); 
+            }
+            return false;
+        }
+
+        function handleDragEnd(e) {
+            this.classList.remove('draggable-source');
+            const items = document.querySelectorAll('.group-card');
+            items.forEach(item => item.classList.remove('border-indigo-500'));
+        }
+
+        function renderGroups() {
+            groupList.innerHTML = '';
+            
+            if (groups.length === 0) {
+                groupList.appendChild(emptyGroupMsg);
+                groupCountSpan.innerText = "0 組";
+                groupCountDisplay.innerText = "0";
+                return;
+            }
+            
+            groupCountSpan.innerText = `${groups.length} 組`;
+            groupCountDisplay.innerText = `${groups.length}`;
+
+            groups.forEach((group, idx) => {
+                const card = document.createElement('div');
+                card.className = "group-card bg-slate-700/40 border border-slate-600 rounded-lg p-3 flex flex-col gap-2 transition-all";
+                // V4.2: Draggable only if edit mode is ON
+                card.draggable = isEditMode; 
+                card.dataset.index = idx; 
+                
+                // DnD Listeners
+                card.addEventListener('dragstart', handleDragStart);
+                card.addEventListener('dragenter', handleDragEnter);
+                card.addEventListener('dragover', handleDragOver);
+                card.addEventListener('dragleave', handleDragLeave);
+                card.addEventListener('drop', handleDrop);
+                card.addEventListener('dragend', handleDragEnd);
+
+                // Header
+                const header = document.createElement('div');
+                header.className = "flex justify-between items-center gap-2";
+                
+                const dragHandle = document.createElement('div');
+                dragHandle.className = "drag-handle text-slate-500 cursor-move px-1 edit-controls"; // Hidden by default
+                dragHandle.innerHTML = '<i class="fas fa-grip-vertical"></i>';
+                header.appendChild(dragHandle);
+                
+                const nameInput = document.createElement('input');
+                nameInput.type = "text";
+                nameInput.value = group.name;
+                nameInput.className = "text-sm font-bold text-indigo-300 bg-transparent border-b border-indigo-500/30 focus:border-indigo-500 focus:outline-none w-full px-1 py-0.5";
+                nameInput.addEventListener('change', (e) => updateGroupName(group.id, e.target.value));
+                header.appendChild(nameInput);
+                
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = "text-slate-500 hover:text-red-400 px-2 edit-controls"; // Hidden by default
+                deleteBtn.innerHTML = '<i class="fas fa-trash-alt"></i>';
+                deleteBtn.onclick = () => removeGroup(group.id);
+                header.appendChild(deleteBtn);
+                
+                card.appendChild(header);
+
+                // Category Input
+                const catRow = document.createElement('div');
+                catRow.className = "flex items-center gap-2 mb-1";
+                catRow.innerHTML = `<i class="fas fa-folder text-slate-500 text-xs w-4 text-center"></i>`;
+                const catInput = document.createElement('input');
+                catInput.type = "text";
+                catInput.value = group.category || "預設群組";
+                catInput.placeholder = "群組名稱 (用於上方燈號分類)";
+                catInput.className = "text-xs text-slate-400 bg-slate-800/50 border-b border-slate-600 focus:border-indigo-500 focus:outline-none w-full px-1 py-0.5";
+                catInput.addEventListener('change', (e) => updateGroupCategory(group.id, e.target.value));
+                catRow.appendChild(catInput);
+                card.appendChild(catRow);
+                
+                // NEW: Scan Region Select
+                const regionRow = document.createElement('div');
+                regionRow.className = "flex items-center gap-2 mb-1";
+                regionRow.innerHTML = `<i class="fas fa-bullseye text-slate-500 text-xs w-4 text-center"></i>`;
+                
+                const regionSelect = document.createElement('select');
+                regionSelect.className = "text-xs text-slate-400 bg-slate-800/50 border-b border-slate-600 focus:border-indigo-500 focus:outline-none w-full px-1 py-0.5 appearance-none";
+                
+                const optAuto = document.createElement('option');
+                optAuto.value = "all";
+                optAuto.text = "自動 (掃描所有區域)";
+                if (!group.assignedRegion || group.assignedRegion === 'all') optAuto.selected = true;
+                regionSelect.appendChild(optAuto);
+
+                const optFull = document.createElement('option');
+                optFull.value = "fullscreen";
+                optFull.text = "全螢幕 (忽略區域)";
+                if (group.assignedRegion === 'fullscreen') optFull.selected = true;
+                regionSelect.appendChild(optFull);
+
+                if (scanRegions && scanRegions.length > 0) {
+                     scanRegions.forEach((r, idx) => {
+                         const opt = document.createElement('option');
+                         opt.value = idx.toString();
+                         opt.text = `Scan #${idx+1}`;
+                         if (group.assignedRegion === idx.toString()) opt.selected = true;
+                         regionSelect.appendChild(opt);
+                     });
+                }
+                regionSelect.addEventListener('change', (e) => updateGroupScanRegion(group.id, e.target.value));
+                regionRow.appendChild(regionSelect);
+                card.appendChild(regionRow);
+
+
+                // Custom Message Inputs Container
+                const messagesContainer = document.createElement('div');
+                messagesContainer.className = "flex flex-col gap-1 mb-1";
+
+                // Success Message Input
+                const successMsgRow = document.createElement('div');
+                successMsgRow.className = "flex items-center gap-2";
+                successMsgRow.innerHTML = `<i class="fas fa-check text-green-500 text-xs w-4 text-center"></i>`;
+                const successInput = document.createElement('input');
+                successInput.type = "text";
+                successInput.value = group.successMessage || "偵測成功";
+                successInput.placeholder = "成功提示語";
+                successInput.className = "text-xs text-green-300 bg-slate-800/50 border-b border-slate-600 focus:border-green-500 focus:outline-none w-full px-1 py-0.5";
+                successInput.addEventListener('change', (e) => updateGroupSuccessMessage(group.id, e.target.value));
+                successMsgRow.appendChild(successInput);
+                messagesContainer.appendChild(successMsgRow);
+
+                // Lost Message Input
+                const lostMsgRow = document.createElement('div');
+                lostMsgRow.className = "flex items-center gap-2";
+                lostMsgRow.innerHTML = `<i class="fas fa-times text-red-500 text-xs w-4 text-center"></i>`;
+                const lostInput = document.createElement('input');
+                lostInput.type = "text";
+                lostInput.value = group.lostMessage || "已消失";
+                lostInput.placeholder = "消失提示語";
+                lostInput.className = "text-xs text-red-300 bg-slate-800/50 border-b border-red-900/50 focus:border-red-500 focus:outline-none w-full px-1 py-0.5";
+                lostInput.addEventListener('change', (e) => updateGroupLostMessage(group.id, e.target.value));
+                lostMsgRow.appendChild(lostInput);
+                messagesContainer.appendChild(lostMsgRow);
+
+                card.appendChild(messagesContainer);
+                
+                // Status Row
+                const statusRow = document.createElement('div');
+                statusRow.className = "flex justify-between items-center mb-1";
+                statusRow.innerHTML = `
+                    <div class="flex items-center">
+                        <span id="status-${group.id}" class="text-[10px] bg-slate-800 px-2 py-0.5 rounded text-slate-400 font-mono">等待設定</span>
+                        <span id="timer-${group.id}" class="text-[10px] text-slate-500 font-mono ml-2 border-l border-slate-600 pl-2"></span>
+                    </div>
+                `;
+                
+                // Pre-render Reset Button (Hidden by default)
+                const resetBtn = document.createElement('button');
+                resetBtn.className = "reset-btn text-[10px] text-yellow-400 hover:text-yellow-300 bg-yellow-900/30 px-2 py-0.5 rounded border border-yellow-700/50 flex items-center gap-1";
+                if (!group.triggerState) resetBtn.classList.add('hidden'); // Default Hidden
+                resetBtn.innerHTML = '<i class="fas fa-sync-alt"></i> 重置';
+                resetBtn.onclick = () => resetGroupStatus(group.id);
+                statusRow.appendChild(resetBtn);
+
+                card.appendChild(statusRow);
+
+                // Main Slot (Big Image)
+                const mainSlotEl = document.createElement('div');
+                mainSlotEl.className = "combo-slot slot-main relative group/slot";
+                if (group.mainSlot) {
+                    mainSlotEl.classList.add('filled');
+                    const img = document.createElement('img');
+                    img.src = group.mainSlot.displayUrl;
+                    img.className = "w-full h-full object-cover opacity-60 group-hover/slot:opacity-100";
+                    mainSlotEl.appendChild(img);
+                    
+                    const scoreTag = document.createElement('div');
+                    scoreTag.id = `score-${group.id}-main`;
+                    scoreTag.className = "score-tag";
+                    // Apply correction visually if needed (optional), but calculation uses it
+                    const lastScore = group.lastScores['main'] || 0;
+                    scoreTag.innerText = `${lastScore}%`;
+                    mainSlotEl.appendChild(scoreTag);
+                    
+                    const check = document.createElement('div');
+                    check.id = `check-${group.id}-main`;
+                    check.className = "absolute inset-0 flex items-center justify-center border-4 border-blue-500 hidden";
+                    mainSlotEl.appendChild(check);
+                } else {
+                    mainSlotEl.innerHTML = `<span class="text-slate-500 text-xs flex items-center gap-1 group-hover/slot:text-blue-400"><i class="fas fa-expand"></i> 點擊設定大圖 (定位範圍)</span>`;
+                }
+                mainSlotEl.onclick = () => initiateCrop(group.id, 'main', 0);
+                mainSlotEl.title = "點擊截取：大圖 (定位錨點)";
+                card.appendChild(mainSlotEl);
+
+                // Sub Slots Container
+                const slotsContainer = document.createElement('div');
+                slotsContainer.className = "flex justify-between gap-2";
+
+                group.subSlots.forEach((slot, index) => {
+                    const slotEl = document.createElement('div');
+                    slotEl.className = "combo-slot slot-sub relative group/slot";
+                    if (slot) {
+                        slotEl.classList.add('filled');
+                        const img = document.createElement('img');
+                        img.src = slot.displayUrl;
+                        img.className = "w-full h-full object-cover opacity-60 group-hover/slot:opacity-100";
+                        slotEl.appendChild(img);
+                        
+                        const scoreTag = document.createElement('div');
+                        scoreTag.id = `score-${group.id}-sub-${index}`;
+                        scoreTag.className = "score-tag";
+                        const lastScore = group.lastScores[`sub-${index}`] || 0;
+                        scoreTag.innerText = `${lastScore}%`;
+                        slotEl.appendChild(scoreTag);
+                        
+                        const check = document.createElement('div');
+                        check.id = `check-${group.id}-sub-${index}`;
+                        check.className = "absolute inset-0 flex items-center justify-center bg-green-500/80 hidden";
+                        check.innerHTML = '<i class="fas fa-check text-white font-bold"></i>';
+                        slotEl.appendChild(check);
+                    } else {
+                        slotEl.innerHTML = `<i class="fas fa-plus text-slate-500 text-sm group-hover/slot:text-yellow-400"></i>`;
+                    }
+                    slotEl.onclick = () => initiateCrop(group.id, 'sub', index);
+                    slotEl.title = `點擊截取：特徵點 ${index + 1}`;
+                    
+                    const label = document.createElement('div');
+                    label.className = "slot-label";
+                    label.innerText = `#${index+1}`;
+                    slotEl.appendChild(label);
+
+                    slotsContainer.appendChild(slotEl);
+                });
+
+                card.appendChild(slotsContainer);
+                groupList.appendChild(card); 
+            });
+            
+            // Re-apply Edit Mode
+            document.getElementById('groupList').classList.toggle('is-edit-mode', isEditMode);
+        }
+
+        function initiateCrop(groupId, slotType, slotIndex) {
+            if(!stream || videoElement.classList.contains('hidden')) {
+                showError("請先連接攝影機");
+                return;
+            }
+            activeSlotInfo = { groupId, slotType, slotIndex };
+            isCropping = true;
+            cropInstruction.classList.remove('hidden');
+            const text = slotType === 'main' ? "請框選【定位大範圍】..." : `請在大範圍內框選【特徵點 #${slotIndex+1}】...`;
+            cropInstruction.innerHTML = `<i class="fas fa-mouse-pointer mr-2"></i> ${text}`;
+            previewScroller.classList.add('crosshair-cursor');
+            zoomWrapper.style.cursor = "crosshair";
+        }
+
+        // --- Crop Logic ---
+        zoomWrapper.addEventListener('mousedown', (e) => {
+            if (!isCropping) return;
+            e.preventDefault();
+            isDragging = true;
+            const rect = zoomWrapper.getBoundingClientRect();
+            startX = e.clientX - rect.left;
+            startY = e.clientY - rect.top;
+            cropSelection.style.left = `${startX}px`;
+            cropSelection.style.top = `${startY}px`;
+            cropSelection.style.width = '0px';
+            cropSelection.style.height = '0px';
+            cropSelection.style.display = 'block';
+        });
+
+        window.addEventListener('mousemove', (e) => {
+            if (!isDragging || !isCropping) return;
+            const rect = zoomWrapper.getBoundingClientRect();
+            let currentX = e.clientX - rect.left;
+            let currentY = e.clientY - rect.top;
+            currentX = Math.max(0, Math.min(currentX, rect.width));
+            currentY = Math.max(0, Math.min(currentY, rect.height));
+            const width = currentX - startX;
+            const height = currentY - startY;
+            cropSelection.style.left = width < 0 ? `${currentX}px` : `${startX}px`;
+            cropSelection.style.top = height < 0 ? `${currentY}px` : `${startY}px`;
+            cropSelection.style.width = `${Math.abs(width)}px`;
+            cropSelection.style.height = `${Math.abs(height)}px`;
+        });
+
+        window.addEventListener('mouseup', async (e) => {
+            if (!isDragging || !isCropping) return;
+            isDragging = false;
+            const rect = cropSelection.getBoundingClientRect();
+            const wrapperRect = zoomWrapper.getBoundingClientRect();
+            isCropping = false;
+            cropInstruction.classList.add('hidden');
+            previewScroller.classList.remove('crosshair-cursor');
+            zoomWrapper.style.cursor = "default";
+            cropSelection.style.display = 'none';
+
+            if (rect.width < 10 || rect.height < 10) return;
+
+            try {
+                const nativeW = videoNativeWidth || wrapperRect.width;
+                const nativeH = videoNativeHeight || wrapperRect.height;
+                const ratioW = nativeW / wrapperRect.width;
+                const ratioH = nativeH / wrapperRect.height;
+                const nx = Math.floor((rect.left - wrapperRect.left) * ratioW);
+                const ny = Math.floor((rect.top - wrapperRect.top) * ratioH);
+                const nw = Math.floor(rect.width * ratioW);
+                const nh = Math.floor(rect.height * ratioH);
+                
+                if (nw <= 0 || nh <= 0) return;
+
+                const tempCanvas = document.createElement('canvas');
+                tempCanvas.width = nw;
+                tempCanvas.height = nh;
+                const ctx = tempCanvas.getContext('2d');
+                ctx.drawImage(videoElement, nx, ny, nw, nh, 0, 0, nw, nh);
+                
+                const displayUrl = tempCanvas.toDataURL();
+                const imageData = ctx.getImageData(0, 0, nw, nh);
+
+                if (activeSlotInfo) {
+                    const group = groups.find(g => g.id === activeSlotInfo.groupId);
+                    if (group) {
+                        const newSlotData = {
+                            imageData: imageData,
+                            scaledData: null,
+                            displayUrl: displayUrl,
+                            width: nw,
+                            height: nh,
+                            weightCorrection: 0 // Initialize correction
+                        };
+                        if (activeSlotInfo.slotType === 'main') {
+                            group.mainSlot = newSlotData;
+                        } else {
+                            group.subSlots[activeSlotInfo.slotIndex] = newSlotData;
+                        }
+                        renderGroups();
+                        saveData(); 
+                        showSuccess("已設定圖片");
+                    }
+                } else if (isScanRegionMode) {
+                    const region = { x: nx, y: ny, w: nw, h: nh };
+                    scanRegions.push(region);
+                    saveData();
+                    renderScanRegions();
+                    updateScanRegionStatus();
+                    showSuccess("已新增搜尋範圍");
+                    isScanRegionMode = false; 
+                }
+            } catch (err) {
+                console.error(err);
+                showError("截取失敗");
+            }
+            activeSlotInfo = null;
+        });
+
+        // --- Scan Region UI Logic ---
+        function initiateRegionCrop() {
+            if(!stream || videoElement.classList.contains('hidden')) {
+                showError("請先連接攝影機");
+                return;
+            }
+            isScanRegionMode = true;
+            isCropping = true;
+            cropInstruction.classList.remove('hidden');
+            cropInstruction.innerHTML = `<i class="fas fa-crosshairs mr-2"></i> 請框選您要進行偵測的區域 (可多次框選)`;
+            previewScroller.classList.add('crosshair-cursor');
+            zoomWrapper.style.cursor = "crosshair";
+        }
+        
+        function updateScanRegionStatus() {
+            let totalPixels = 0;
+            if (scanRegions.length > 0) {
+                scanRegions.forEach(r => {
+                    totalPixels += r.w * r.h;
+                });
+                const mb = (totalPixels * 4 / 1024 / 1024).toFixed(2);
+                scanRegionStatus.innerHTML = `掃描範圍: <span class="text-green-400 font-bold">${scanRegions.length} 個區域</span>`;
+                clearScanRegionsBtn.classList.remove('hidden');
+            } else {
+                totalPixels = videoNativeWidth * videoNativeHeight;
+                const mb = (totalPixels * 4 / 1024 / 1024).toFixed(2);
+                scanRegionStatus.innerHTML = `掃描範圍: <span class="text-white font-bold">全螢幕</span>`;
+                clearScanRegionsBtn.classList.add('hidden');
+            }
+        }
+        
+        function renderScanRegions() {
+            const existing = document.querySelectorAll('.scan-region-box');
+            existing.forEach(e => e.remove());
+            
+            if (!showRegionsToggle.checked) return;
+
+            scanRegions.forEach((r, idx) => {
+                const perX = (r.x / videoNativeWidth) * 100;
+                const perY = (r.y / videoNativeHeight) * 100;
+                const perW = (r.w / videoNativeWidth) * 100;
+                const perH = (r.h / videoNativeHeight) * 100;
+                
+                const box = document.createElement('div');
+                box.className = 'scan-region-box';
+                box.style.left = `${perX}%`;
+                box.style.top = `${perY}%`;
+                box.style.width = `${perW}%`;
+                box.style.height = `${perH}%`;
+                
+                const label = document.createElement('div');
+                label.className = 'scan-region-label';
+                label.innerText = `Scan #${idx+1}`;
+                box.appendChild(label);
+                
+                detectionOverlays.appendChild(box);
+            });
+        }
+        
+        addScanRegionBtn.addEventListener('click', initiateRegionCrop);
+        
+        clearScanRegionsBtn.addEventListener('click', () => {
+            scanRegions = [];
+            saveData();
+            renderScanRegions();
+            updateScanRegionStatus();
+            showSuccess("已清除所有搜尋範圍 (回復全螢幕)");
+        });
+
+        // --- UI Timer ---
+        function startUiTimer() {
+            if (timerIntervalId) clearInterval(timerIntervalId);
+            timerIntervalId = setInterval(() => {
+                const now = Date.now();
+                
+                // Date Rollover Check
+                const currentDay = new Date().toDateString();
+                if (currentDay !== lastDateString) {
+                     lastDateString = currentDay;
+                     // V6.9 FIX: Do not force filter date if it was empty (Show All mode)
+                     if (logDateFilter.value) {
+                        logDateFilter.valueAsDate = new Date();
+                     }
+                     renderAllLogs();
+                }
+
+                groups.forEach(group => {
+                    const duration = now - group.lastChangeTime;
+
+                    // Update Card Timer
+                    const timerEl = document.getElementById(`timer-${group.id}`);
+                    if (timerEl && group.lastChangeTime) {
+                        const prefix = group.triggerState ? "已出現: " : "已消失: ";
+                        const colorClass = group.triggerState ? "text-green-400" : "text-slate-500";
+                        timerEl.className = `text-[10px] font-mono ml-2 border-l border-slate-600 pl-2 ${colorClass}`;
+                        timerEl.innerText = prefix + formatDuration(duration);
+                    }
+                    
+                    // Update HUD Timer (Main)
+                    const hudTimerEl = document.getElementById(`hud-timer-${group.id}`);
+                    if (hudTimerEl) {
+                        if (group.triggerState) {
+                            hudTimerEl.innerText = formatTimerDuration(duration);
+                            hudTimerEl.style.display = 'block';
+                        } else {
+                            hudTimerEl.style.display = 'none';
+                        }
+                    }
+
+                    // Update Popout Timer
+                    if (popoutWindow && !popoutWindow.closed) {
+                         const popHudTimer = popoutWindow.document.getElementById(`hud-timer-${group.id}`);
+                         if (popHudTimer) {
+                            if (group.triggerState) {
+                                popHudTimer.innerText = formatTimerDuration(duration);
+                                popHudTimer.style.display = 'block';
+                            } else {
+                                popHudTimer.style.display = 'none';
+                            }
+                        }
+                    }
+                });
+            }, 1000);
+        }
+
+        // --- Detection Logic (v3.0) ---
+        function detectMotion() {
+            if (!isMonitoring || !videoElement.videoWidth) {
+                if (isMonitoring) animationFrameId = requestAnimationFrame(detectMotion);
+                return;
+            }
+            
+            const now = Date.now();
+            const intervalSeconds = parseFloat(checkIntervalInput.value) || 0.5;
+            const intervalMs = intervalSeconds * 1000;
+            const elapsed = now - lastCheckTime;
+            let progress = Math.min(100, (elapsed / intervalMs) * 100);
+            if(intervalMs <= 0) progress = 100;
+            countdownBar.style.width = `${progress}%`;
+            
+            if (elapsed >= intervalMs && pendingGroupChecks.length === 0) {
+                lastCheckTime = now;
+                const valid = groups.filter(g => g.mainSlot && g.subSlots.filter(s=>s).length >= 3);
+                if(valid.length > 0) {
+                    pendingGroupChecks = [...valid];
+                    lastScanTime = 0; 
+                }
+            }
+
+            if (pendingGroupChecks.length > 0) {
+                if (now - lastScanTime >= SCAN_DELAY) {
+                    const group = pendingGroupChecks.shift();
+                    processGroup(group);
+                    lastScanTime = now;
+                }
+                nextCheckText.innerText = `掃描序列執行中... 剩餘 ${pendingGroupChecks.length}`;
+                nextCheckText.className = "text-[10px] text-right text-yellow-400 font-mono font-bold animate-pulse";
+            } else {
+                const remainingSeconds = Math.max(0, intervalSeconds - (elapsed / 1000));
+                if (remainingSeconds > 0.1) {
+                      nextCheckText.innerText = `等待倒數: ${remainingSeconds.toFixed(1)}s (待機中)`;
+                      nextCheckText.className = "text-[10px] text-right text-slate-500 font-mono";
+                } else {
+                      nextCheckText.innerText = `偵測執行中...`;
+                      nextCheckText.className = "text-[10px] text-right text-green-400 font-mono font-bold";
+                }
+            }
+            animationFrameId = requestAnimationFrame(detectMotion);
+        }
+        
+        function processGroup(group) {
+            const statusEl = document.getElementById(`status-${group.id}`);
+            const mainCheckEl = document.getElementById(`check-${group.id}-main`);
+            const mainScoreEl = document.getElementById(`score-${group.id}-main`);
+            
+            if (!showBoxesToggle.checked) {
+                clearGroupBoxes(group.id);
+            }
+
+            const filledSubSlots = group.subSlots.filter(s => s !== null).length;
+            if (!group.mainSlot || filledSubSlots < 3) {
+                if(statusEl) {
+                    if (!group.mainSlot) { statusEl.innerText = "等待設定大圖"; } 
+                    else { statusEl.innerText = `等待設定小圖 (${filledSubSlots}/3)`; }
+                    statusEl.className = "text-[10px] bg-slate-800 px-2 py-0.5 rounded text-slate-400 font-mono";
+                }
+                if(mainCheckEl) mainCheckEl.classList.add('hidden');
+                group.subSlots.forEach((_, idx) => {
+                    const el = document.getElementById(`check-${group.id}-sub-${idx}`);
+                    if(el) el.classList.add('hidden');
+                });
+                return; 
+            }
+
+            if (canvas.width !== videoNativeWidth || canvas.height !== videoNativeHeight) {
+                canvas.width = videoNativeWidth;
+                canvas.height = videoNativeHeight;
+            }
+            ctx.drawImage(videoElement, 0, 0, canvas.width, canvas.height);
+            const currentFrameData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const sensitivity = parseInt(sensitivityInput.value);
+            if (!group.mainSlot.imageData) return;
+            
+            let mainResult;
+            
+            // Determine regions to scan based on group.assignedRegion
+            let targetRegions = [];
+            if (group.assignedRegion === 'fullscreen') {
+                 targetRegions = []; // Empty means fallback to full screen search in logic below
+            } else if (group.assignedRegion && group.assignedRegion !== 'all') {
+                 const rIdx = parseInt(group.assignedRegion);
+                 if (scanRegions[rIdx]) {
+                     targetRegions = [scanRegions[rIdx]];
+                 } else {
+                     // Fallback if index invalid
+                     targetRegions = scanRegions.length > 0 ? scanRegions : [];
+                 }
+            } else {
+                 // 'all' or undefined
+                 targetRegions = scanRegions;
+            }
+
+            if (targetRegions.length > 0) {
+                 let bestScore = -1;
+                 let bestMatch = { score: 0, x: 0, y: 0 };
+                 
+                 for (const region of targetRegions) {
+                     const res = findBestMatchInROI(
+                         group.mainSlot.imageData, 
+                         currentFrameData, 
+                         canvas.width, 
+                         canvas.height, 
+                         region.x, region.y, region.w, region.h
+                     );
+                     if (res.score > bestScore) {
+                         bestScore = res.score;
+                         bestMatch = res;
+                     }
+                 }
+                 mainResult = bestMatch;
+            } else {
+                 // Full screen scan
+                 mainResult = findBestMatchInROI(
+                     group.mainSlot.imageData, 
+                     currentFrameData, 
+                     canvas.width, 
+                     canvas.height,
+                     0, 0, canvas.width, canvas.height
+                 );
+            }
+
+            // Apply Correction
+            const mainCorrection = group.mainSlot.weightCorrection || 0;
+            const finalMainScore = mainResult.score - mainCorrection;
+            const isMainMatch = finalMainScore >= sensitivity;
+            
+            group.lastScores = group.lastScores || {};
+            group.lastScores['main'] = finalMainScore; // Show effective score
+            if(mainScoreEl) mainScoreEl.innerText = `${Math.max(0, finalMainScore)}%`;
+
+            // NEW V4.2: Store detection coordinates for immediate toggle
+            if (isMainMatch) {
+                group.latestRects = group.latestRects || { subs: [] };
+                group.latestRects.main = { x: mainResult.x, y: mainResult.y, w: group.mainSlot.width, h: group.mainSlot.height };
+            } else {
+                group.latestRects = null;
+            }
+
+            if (!isMainMatch) {
+                if(mainCheckEl) mainCheckEl.classList.add('hidden');
+                if(statusEl) {
+                    statusEl.innerText = "搜尋定位點...";
+                    statusEl.className = "text-[10px] bg-slate-800 px-2 py-0.5 rounded text-slate-400 font-mono";
+                }
+                
+                clearGroupBoxes(group.id);
+
+                group.subSlots.forEach((_, idx) => {
+                    const el = document.getElementById(`check-${group.id}-sub-${idx}`);
+                    if(el) el.classList.add('hidden');
+                });
+
+                if (group.triggerState) {
+                    group.triggerState = false;
+                    const lostDuration = Date.now() - group.lastChangeTime;
+                    group.lastChangeTime = Date.now();
+                    const lostMsg = group.lostMessage || "已消失";
+                    addLogEntryToState(lostMsg, `共出現 ${formatDuration(lostDuration)}`, 'lost', group.id);
+                    playAlertSound('lost');
+                    
+                    // V4.9 Optimized:
+                    updateCardStatus(group);
+                    updateHudStatus(group);
+                }
+                return;
+            }
+
+            // Main Found
+            if(mainCheckEl) mainCheckEl.classList.remove('hidden');
+            clearGroupBoxes(group.id); 
+            // Pass 'main', 0
+            showGroupDetectionBox(group.id, mainResult.x, mainResult.y, group.mainSlot.width, group.mainSlot.height, 'main', 0);
+
+            const roiX = mainResult.x;
+            const roiY = mainResult.y;
+            const roiW = group.mainSlot.width;
+            const roiH = group.mainSlot.height;
+            let subMatches = 0;
+            let activeSubCount = 3; 
+
+            group.subSlots.forEach((subSlot, idx) => {
+                const subCheckEl = document.getElementById(`check-${group.id}-sub-${idx}`);
+                const subScoreEl = document.getElementById(`score-${group.id}-sub-${idx}`);
+                if (!subSlot) {
+                    if(subCheckEl) subCheckEl.classList.add('hidden');
+                    return;
+                }
+                if (!subSlot.imageData) return;
+
+                const subResult = findBestMatchInROI(subSlot.imageData, currentFrameData, canvas.width, canvas.height, roiX, roiY, roiW, roiH);
+                
+                // Apply Correction
+                const subCorrection = subSlot.weightCorrection || 0;
+                const finalSubScore = subResult.score - subCorrection;
+                const isSubMatch = finalSubScore >= sensitivity;
+                
+                group.lastScores[`sub-${idx}`] = finalSubScore;
+                if(subScoreEl) subScoreEl.innerText = `${Math.max(0, finalSubScore)}%`;
+
+                if (isSubMatch) {
+                    subMatches++;
+                    if(subCheckEl) subCheckEl.classList.remove('hidden');
+                    // Pass 'sub', idx
+                    showGroupDetectionBox(group.id, subResult.x, subResult.y, subSlot.width, subSlot.height, 'sub', idx);
+                    
+                    // V4.2 Cache sub rect
+                    group.latestRects.subs[idx] = { x: subResult.x, y: subResult.y, w: subSlot.width, h: subSlot.height };
+                } else {
+                    if(subCheckEl) subCheckEl.classList.add('hidden');
+                    group.latestRects.subs[idx] = null;
+                }
+            });
+
+            // Final Logic - STRICT MATCHING
+            let isSuccess = (subMatches === 3);
+
+            if (isSuccess) {
+                if (!group.triggerState) {
+                    group.triggerState = true;
+                    const foundDuration = Date.now() - group.lastChangeTime;
+                    group.lastChangeTime = Date.now();
+                    if(statusEl) {
+                        statusEl.innerText = "🟢 驗證成功";
+                        statusEl.className = "text-[10px] bg-green-900/50 text-green-400 px-2 py-0.5 rounded font-bold border border-green-500";
+                    }
+                    
+                    // V4.9 Optimized:
+                    updateCardStatus(group);
+                    
+                    const msg = group.successMessage || `偵測成功`;
+                    addLogEntryToState(msg, `已消失 ${formatDuration(foundDuration)}`, 'found', group.id);
+                    playAlertSound('found');
+                    triggerFlash();
+                    
+                    // V4.9 Optimized:
+                    updateHudStatus(group);
+                }
+            } else {
+                 if (!group.triggerState) {
+                    if(statusEl) {
+                        statusEl.innerText = `比對中 (${subMatches}/${activeSubCount})`;
+                        statusEl.className = "text-[10px] bg-slate-800 px-2 py-0.5 rounded text-yellow-500 font-mono animate-pulse";
+                    }
+                } else {
+                    group.triggerState = false;
+                    const lostDuration = Date.now() - group.lastChangeTime;
+                    group.lastChangeTime = Date.now();
+                    const lostMsg = group.lostMessage || "已消失";
+                    addLogEntryToState(lostMsg, `共出現 ${formatDuration(lostDuration)}`, 'lost', group.id);
+                    playAlertSound('lost');
+                    
+                    // V4.9 Optimized:
+                    updateCardStatus(group);
+                    updateHudStatus(group);
+                }
+            }
+        }
+
+        // ROI Constrained Search (Step 2)
+        function findBestMatchInROI(targetData, screenData, sWidth, sHeight, roiX, roiY, roiW, roiH) {
+            const tWidth = targetData.width;
+            const tHeight = targetData.height;
+            const tData = targetData.data;
+            const sData = screenData.data;
+            let minDiff = Infinity;
+            let bestX = roiX;
+            let bestY = roiY;
+            
+            // Dynamic Scan Step (V6.1 Optimization)
+            let currentStep = SCAN_STEP;
+            const area = (roiW || sWidth) * (roiH || sHeight);
+            if (area > 500000) { // If scanning large area (> 800x600 approx)
+                currentStep = Math.max(SCAN_STEP, 4); // Force higher step to prevent lag
+            }
+
+            const startY = Math.max(0, roiY);
+            const startX = Math.max(0, roiX);
+            const endY = Math.min(sHeight - tHeight, roiY + roiH - tHeight);
+            const endX = Math.min(sWidth - tWidth, roiX + roiW - tWidth);
+
+            if (endX < startX || endY < startY) return { score: 0, x: 0, y: 0 };
+
+            for (let y = startY; y <= endY; y += currentStep) {
+                for (let x = startX; x <= endX; x += currentStep) {
+                    let currentDiff = 0;
+                    for (let ty = 0; ty < tHeight; ty+=2) { 
+                        for (let tx = 0; tx < tWidth; tx+=2) {
+                            const tIndex = (ty * tWidth + tx) * 4;
+                            const sIndex = ((y + ty) * sWidth + (x + tx)) * 4;
+                            const dr = Math.abs(tData[tIndex] - sData[sIndex]);
+                            const dg = Math.abs(tData[tIndex+1] - sData[sIndex+1]);
+                            const db = Math.abs(tData[tIndex+2] - sData[sIndex+2]);
+                            currentDiff += (dr > PIXEL_TOLERANCE ? dr : 0);
+                            currentDiff += (dg > PIXEL_TOLERANCE ? dg : 0);
+                            currentDiff += (db > PIXEL_TOLERANCE ? db : 0);
+                            if (currentDiff > minDiff) break;
+                        }
+                        if (currentDiff > minDiff) break;
+                    }
+                    if (currentDiff < minDiff) {
+                        minDiff = currentDiff;
+                        bestX = x;
+                        bestY = y;
+                    }
+                }
+            }
+            const pixelsChecked = (tWidth/2) * (tHeight/2); 
+            const maxDiff = pixelsChecked * (255 * 3);
+            let similarity = 100 * (1 - (minDiff / maxDiff));
+            return { score: Math.max(0, Math.min(100, Math.floor(similarity))), x: bestX, y: bestY };
+        }
+
+        async function startCapture() {
+            try {
+                stream = await navigator.mediaDevices.getUserMedia({ video: { width: { ideal: 1920 }, height: { ideal: 1080 } }, audio: false });
+                videoElement.srcObject = stream;
+                videoElement.onloadedmetadata = () => {
+                    videoNativeWidth = videoElement.videoWidth;
+                    videoNativeHeight = videoElement.videoHeight;
+                    baseHeight = 450;
+                    baseWidth = baseHeight * (videoNativeWidth / videoNativeHeight);
+                    updateZoom(1);
+                    videoElement.classList.remove('hidden');
+                    placeholder.classList.add('hidden');
+                    
+                    // V6.4 Fix: DO NOT HIDE sourceControls (which contains scanBtn)
+                    startBtn.classList.add('hidden'); // Hide Blue Start
+                    scanBtn.classList.remove('hidden'); // Show Green Scan
+                    
+                    // Show controls immediately (V6.5)
+                    activeControls.classList.remove('hidden'); 
+                    
+                    nextCheckText.innerText = "已連接，可調整範圍，準備好後請按上方綠色按鈕";
+                    nextCheckText.className = "text-[10px] text-right text-slate-400 font-mono";
+                };
+                
+            } catch (err) {
+                showError("無法啟動監控: " + err.message);
+            }
+        }
+        
+        // V6.2 New Function
+        function startScanning() {
+             isMonitoring = true;
+             detectMotion();
+             startUiTimer();
+             
+             // Now swap the control panels to show stop button
+             sourceControls.classList.add('hidden');
+             // activeControls is already visible from startCapture
+        }
+
+        function stopCapture() {
+            isMonitoring = false;
+            cancelAnimationFrame(animationFrameId);
+            if (stream) stream.getTracks().forEach(track => track.stop());
+            videoElement.srcObject = null;
+            videoElement.classList.add('hidden');
+            placeholder.classList.remove('hidden');
+            detectionOverlays.innerHTML = '';
+            
+            // Reset UI
+            sourceControls.classList.remove('hidden');
+            activeControls.classList.add('hidden');
+            
+            // Reset Buttons
+            startBtn.classList.remove('hidden');
+            scanBtn.classList.add('hidden');
+            nextCheckText.innerText = "等待開始...";
+        }
+
+        function updateZoom(newScale) {
+            scale = parseFloat(newScale);
+            scale = Math.min(Math.max(1, scale), 50);
+            zoomDisplay.innerText = `${scale.toFixed(1)}x`;
+            const scrollContainer = previewScroller;
+            const content = zoomWrapper;
+            const viewportCenterX = scrollContainer.clientWidth / 2;
+            const viewportCenterY = scrollContainer.clientHeight / 2;
+            const contentCenterX = scrollContainer.scrollLeft + viewportCenterX;
+            const contentCenterY = scrollContainer.scrollTop + viewportCenterY;
+            const ratioX = contentCenterX / content.offsetWidth;
+            const ratioY = contentCenterY / content.offsetHeight;
+            if(baseWidth > 0 && baseHeight > 0) {
+                zoomWrapper.style.width = `${baseWidth * scale}px`;
+                zoomWrapper.style.height = `${baseHeight * scale}px`;
+            } else {
+                zoomWrapper.style.width = `${scale * 100}%`;
+                zoomWrapper.style.height = `${scale * 100}%`;
+            }
+            const newScrollLeft = (ratioX * content.offsetWidth) - viewportCenterX;
+            const newScrollTop = (ratioY * content.offsetHeight) - viewportCenterY;
+            scrollContainer.scrollLeft = newScrollLeft;
+            scrollContainer.scrollTop = newScrollTop;
+        }
+
+        // Attach listeners for auto-save on settings change
+        safeAddEventListener(sensitivityInput, 'change', saveData);
+        safeAddEventListener(checkIntervalInput, 'change', saveData);
+        safeAddEventListener(soundToggle, 'change', saveData);
+
+        safeAddEventListener(startBtn, 'click', startCapture);
+        safeAddEventListener(scanBtn, 'click', startScanning); // Added listener
+        safeAddEventListener(stopBtn, 'click', stopCapture);
+        
+        safeAddEventListener(sensitivityInput, 'input', (e) => sensitivityVal.innerText = `${e.target.value}%`);
+        
+        safeAddEventListener(zoomInBtn, 'click', () => updateZoom(scale + 0.5));
+        safeAddEventListener(zoomOutBtn, 'click', () => updateZoom(scale - 0.5));
+        safeAddEventListener(zoomResetBtn, 'click', () => updateZoom(1));
+
+        // Initial Load
+        loadData();
+    </script>
+</body>
+</html>
